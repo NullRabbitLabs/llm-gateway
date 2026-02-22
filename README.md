@@ -205,6 +205,14 @@ docker run -p 8090:8090 \
 
 See [CONTRIBUTING.md](CONTRIBUTING.md).
 
+---
+
+## Context
+
+LLM Gateway is the provider abstraction layer used by [NullRabbit's](https://nullrabbit.ai) AI agents for autonomous threat analysis across validator infrastructure and decentralised networks.
+
+It is open-sourced as a standalone tool because multi-provider routing with cost tracking and automatic fallback is useful beyond security — if you're building AI agents or pipelines that need resilient LLM access, this does the job.
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
