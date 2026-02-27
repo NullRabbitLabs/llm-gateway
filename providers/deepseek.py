@@ -34,7 +34,7 @@ class DeepSeekProvider(Provider):
     def name(self) -> str:
         return "deepseek"
 
-    def _call_api(self, prompt: str, system_prompt: Optional[str]) -> LLMResponse:
+    def _call_api(self, prompt: str, system_prompt: Optional[str], model_override: str | None = None) -> LLMResponse:
         """Call DeepSeek API."""
         messages = []
         if system_prompt:
@@ -43,7 +43,7 @@ class DeepSeekProvider(Provider):
 
         try:
             response = self.client.chat.completions.create(
-                model=self.model,
+                model=model_override or self.model,
                 messages=messages,
             )
         except Exception as e:

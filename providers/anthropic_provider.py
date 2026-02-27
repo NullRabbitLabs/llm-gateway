@@ -101,11 +101,11 @@ class AnthropicProvider(Provider):
     def name(self) -> str:
         return "anthropic"
 
-    def _call_api(self, prompt: str, system_prompt: Optional[str]) -> LLMResponse:
+    def _call_api(self, prompt: str, system_prompt: Optional[str], model_override: str | None = None) -> LLMResponse:
         """Call Anthropic API."""
         try:
             kwargs = {
-                "model": self.model,
+                "model": model_override or self.model,
                 "max_tokens": 16000,
                 "messages": [{"role": "user", "content": prompt}],
                 "temperature": 0.1,

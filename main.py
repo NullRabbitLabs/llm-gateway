@@ -83,6 +83,7 @@ class ClassifyRequest(BaseModel):
     """Request body for /classify endpoint."""
 
     prompt: str = Field(..., min_length=1, description="Classification prompt")
+    model: Optional[str] = Field(default=None, description="Model override (e.g. 'deepseek-chat')")
 
     @field_validator("prompt")
     @classmethod
@@ -116,6 +117,7 @@ class PlanRequest(BaseModel):
 
     context: dict[str, Any] = Field(..., description="Scan context for planning")
     system_prompt: str = Field(..., min_length=1, description="System prompt for the planner")
+    model: Optional[str] = Field(default=None, description="Model override (e.g. 'deepseek-chat')")
 
 
 class PlanResponse(BaseModel):
@@ -221,7 +223,7 @@ async def classify(request: ClassifyRequest) -> ClassifyResponse:
         raise HTTPException(status_code=500, detail="LLM service not initialized")
 
     try:
-        result = llm_service.call(request.prompt)
+        result = llm_service.call(request.prompt, model_override=request.model)
 
         # Parse classification JSON
         try:
@@ -260,7 +262,7 @@ async def plan(request: PlanRequest) -> PlanResponse:
         # Convert context to JSON string for the prompt
         context_json = json.dumps(request.context, ensure_ascii=False, separators=(",", ":"))
 
-        result = llm_service.call(context_json, request.system_prompt)
+        result = llm_service.call(context_json, request.system_prompt, model_override=request.model)
 
         # Parse plan JSON
         try:

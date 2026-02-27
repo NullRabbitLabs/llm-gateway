@@ -29,7 +29,7 @@ class OpenAIProvider(Provider):
     def name(self) -> str:
         return "openai"
 
-    def _call_api(self, prompt: str, system_prompt: Optional[str]) -> LLMResponse:
+    def _call_api(self, prompt: str, system_prompt: Optional[str], model_override: str | None = None) -> LLMResponse:
         """Call OpenAI API."""
         messages = []
         if system_prompt:
@@ -38,7 +38,7 @@ class OpenAIProvider(Provider):
 
         try:
             response = self.client.chat.completions.create(
-                model=self.model,
+                model=model_override or self.model,
                 messages=messages,
                 response_format={"type": "json_object"}
             )

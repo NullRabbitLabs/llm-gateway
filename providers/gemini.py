@@ -27,11 +27,11 @@ class GeminiProvider(Provider):
     def name(self) -> str:
         return "gemini"
 
-    def _call_api(self, prompt: str, system_prompt: Optional[str]) -> LLMResponse:
+    def _call_api(self, prompt: str, system_prompt: Optional[str], model_override: str | None = None) -> LLMResponse:
         """Call Gemini API."""
         try:
             response = self.client.models.generate_content(
-                model=self.model,
+                model=model_override or self.model,
                 contents=prompt,
                 config=genai_types.GenerateContentConfig(
                     system_instruction=system_prompt if system_prompt else None,

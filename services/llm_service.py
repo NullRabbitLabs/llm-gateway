@@ -71,7 +71,7 @@ class LLMService:
 
         return providers
 
-    def call(self, prompt: str, system_prompt: Optional[str] = None) -> LLMResponse:
+    def call(self, prompt: str, system_prompt: Optional[str] = None, model_override: str | None = None) -> LLMResponse:
         """Call LLM with auto-fallback on failure.
 
         Args:
@@ -89,7 +89,7 @@ class LLMService:
         for provider in self.providers:
             try:
                 log.info(f"Calling provider: {provider.name}")
-                response = provider.call(prompt, system_prompt)
+                response = provider.call(prompt, system_prompt, model_override=model_override)
                 log.info(f"Provider {provider.name} succeeded: {response.prompt_tokens} prompt tokens, "
                          f"{response.completion_tokens} completion tokens, {response.latency_ms}ms")
                 return response

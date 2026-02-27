@@ -87,7 +87,7 @@ class Provider(ABC):
         pass
 
     @abstractmethod
-    def _call_api(self, prompt: str, system_prompt: Optional[str]) -> LLMResponse:
+    def _call_api(self, prompt: str, system_prompt: Optional[str], model_override: str | None = None) -> LLMResponse:
         """Make the actual API call. Subclasses implement this."""
         pass
 
@@ -104,7 +104,7 @@ class Provider(ABC):
         """
         raise ProviderError(f"{self.name} does not support tool calls")
 
-    def call(self, prompt: str, system_prompt: Optional[str] = None) -> LLMResponse:
+    def call(self, prompt: str, system_prompt: Optional[str] = None, model_override: str | None = None) -> LLMResponse:
         """Call the provider with retry logic.
 
         Args:
@@ -123,7 +123,7 @@ class Provider(ABC):
         for attempt in range(max_retries + 1):
             try:
                 start_time = time.time()
-                response = self._call_api(prompt, system_prompt)
+                response = self._call_api(prompt, system_prompt, model_override=model_override)
                 response.latency_ms = int((time.time() - start_time) * 1000)
                 return response
             except RateLimitError as e:
