@@ -45,6 +45,7 @@ class DeepSeekProvider(Provider):
             response = self.client.chat.completions.create(
                 model=model_override or self.model,
                 messages=messages,
+                max_tokens=8192,
             )
         except Exception as e:
             error_str = str(e).lower()
