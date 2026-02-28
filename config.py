@@ -12,7 +12,11 @@ log = logging.getLogger("llm-gateway.config")
 class Config:
     """Configuration for LLM Gateway service."""
 
-    provider: str  # "deepseek", "gemini", "openai", "anthropic", or "auto"
+    provider: str  # "ollama", "deepseek", "gemini", "openai", "anthropic", or "auto"
+
+    # Ollama (local)
+    ollama_host: Optional[str] = None
+    ollama_model: Optional[str] = None
 
     # DeepSeek
     deepseek_api_key: Optional[str] = None
@@ -45,6 +49,8 @@ class Config:
 
         config = cls(
             provider=provider,
+            ollama_host=os.getenv("OLLAMA_HOST"),
+            ollama_model=os.getenv("OLLAMA_MODEL"),
             deepseek_api_key=os.getenv("DEEPSEEK_API_KEY"),
             deepseek_model=os.getenv("DEEPSEEK_MODEL"),
             gemini_api_key=os.getenv("GEMINI_API_KEY"),
@@ -62,7 +68,9 @@ class Config:
 
     def _validate(self) -> None:
         """Validate configuration based on provider setting."""
-        if self.provider == "deepseek":
+        if self.provider == "ollama":
+            self._validate_ollama()
+        elif self.provider == "deepseek":
             self._validate_provider("deepseek", self.deepseek_api_key, self.deepseek_model)
         elif self.provider == "gemini":
             self._validate_provider("gemini", self.gemini_api_key, self.gemini_model)
@@ -74,6 +82,17 @@ class Config:
             self._validate_auto_mode()
         else:
             raise ValueError(f"Unknown LLM_PROVIDER: {self.provider}")
+
+    def _validate_ollama(self) -> None:
+        """Validate Ollama provider has required configuration (no API key needed)."""
+        if not self.ollama_host:
+            raise ValueError(
+                "LLM_PROVIDER is set to 'ollama' but OLLAMA_HOST is not configured."
+            )
+        if not self.ollama_model:
+            raise ValueError(
+                "LLM_PROVIDER is set to 'ollama' but OLLAMA_MODEL is not configured."
+            )
 
     def _validate_provider(self, name: str, api_key: Optional[str], model: Optional[str]) -> None:
         """Validate a specific provider has required configuration."""
@@ -91,6 +110,8 @@ class Config:
         """Validate at least one provider is fully configured in auto mode."""
         providers_ready = []
 
+        if self.ollama_host and self.ollama_model:
+            providers_ready.append("ollama")
         if self.deepseek_api_key and self.deepseek_model:
             providers_ready.append("deepseek")
         if self.gemini_api_key and self.gemini_model:
@@ -103,7 +124,8 @@ class Config:
         if not providers_ready:
             raise ValueError(
                 "No LLM providers fully configured. Set at least one pair of "
-                "<PROVIDER>_API_KEY and <PROVIDER>_MODEL environment variables."
+                "<PROVIDER>_API_KEY and <PROVIDER>_MODEL environment variables, "
+                "or OLLAMA_HOST and OLLAMA_MODEL for local models."
             )
 
         log.info(f"Auto mode: {len(providers_ready)} providers ready: {', '.join(providers_ready)}")
@@ -111,6 +133,8 @@ class Config:
     def get_available_providers(self) -> list[str]:
         """Return list of fully configured providers."""
         providers = []
+        if self.ollama_host and self.ollama_model:
+            providers.append("ollama")
         if self.deepseek_api_key and self.deepseek_model:
             providers.append("deepseek")
         if self.gemini_api_key and self.gemini_model:

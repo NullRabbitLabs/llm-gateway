@@ -9,6 +9,7 @@ from providers.deepseek import DeepSeekProvider
 from providers.gemini import GeminiProvider
 from providers.openai_provider import OpenAIProvider
 from providers.anthropic_provider import AnthropicProvider
+from providers.ollama import OllamaProvider
 
 log = logging.getLogger("llm-gateway.service")
 
@@ -41,6 +42,7 @@ class LLMService:
         """Initialize providers based on configuration.
 
         In auto mode, providers are ordered by cost-effectiveness:
+        0. Ollama (free / local)
         1. DeepSeek (cheapest)
         2. Gemini (very cheap)
         3. OpenAI (mid-tier)
@@ -50,6 +52,8 @@ class LLMService:
 
         if config.provider == "auto":
             # Auto mode: add all configured providers in cost order
+            if config.ollama_host and config.ollama_model:
+                providers.append(OllamaProvider(config.ollama_host, config.ollama_model))
             if config.deepseek_api_key and config.deepseek_model:
                 providers.append(DeepSeekProvider(config.deepseek_api_key, config.deepseek_model))
             if config.gemini_api_key and config.gemini_model:
@@ -60,7 +64,9 @@ class LLMService:
                 providers.append(AnthropicProvider(config.anthropic_api_key, config.anthropic_model))
         else:
             # Explicit provider selection
-            if config.provider == "deepseek":
+            if config.provider == "ollama":
+                providers.append(OllamaProvider(config.ollama_host, config.ollama_model))
+            elif config.provider == "deepseek":
                 providers.append(DeepSeekProvider(config.deepseek_api_key, config.deepseek_model))
             elif config.provider == "gemini":
                 providers.append(GeminiProvider(config.gemini_api_key, config.gemini_model))

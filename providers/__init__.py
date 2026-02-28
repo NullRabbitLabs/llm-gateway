@@ -5,6 +5,7 @@ from .deepseek import DeepSeekProvider
 from .gemini import GeminiProvider
 from .openai_provider import OpenAIProvider
 from .anthropic_provider import AnthropicProvider
+from .ollama import OllamaProvider
 
 __all__ = [
     "Provider",
@@ -15,4 +16,5 @@ __all__ = [
     "GeminiProvider",
     "OpenAIProvider",
     "AnthropicProvider",
+    "OllamaProvider",
 ]
