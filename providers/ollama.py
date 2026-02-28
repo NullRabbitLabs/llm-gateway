@@ -22,12 +22,11 @@ log = logging.getLogger("llm-gateway.providers.ollama")
 class OllamaProvider(Provider):
     """Ollama provider using its native HTTP API."""
 
-    DEFAULT_TIMEOUT = 120
-
-    def __init__(self, host: str, model: str, timeout: int = DEFAULT_TIMEOUT):
+    def __init__(self, host: str, model: str, config=None):
         super().__init__(api_key="", model=model)
+        self._config = config
         self.host = host.rstrip("/")
-        self.timeout = timeout
+        self.timeout = config.timeout if config else 120
 
     @property
     def name(self) -> str:
@@ -76,7 +75,7 @@ class OllamaProvider(Provider):
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
             cost_microcents=0,
-            latency_ms=0,  # Set by base class
+            latency_ms=0,
         )
 
     def _call_api_with_tools(
@@ -125,7 +124,7 @@ class OllamaProvider(Provider):
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
             cost_microcents=0,
-            latency_ms=0,  # Set by base class
+            latency_ms=0,
             tool_calls=parsed_tool_calls,
             finish_reason=finish_reason,
         )

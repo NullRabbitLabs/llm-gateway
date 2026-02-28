@@ -26,9 +26,10 @@ logging.basicConfig(
 )
 log = logging.getLogger("llm-gateway")
 
-# Global service instance
+# Global service instances
 llm_service: Optional[LLMService] = None
 config: Optional[Config] = None
+embedding_service: Optional[EmbeddingService] = None
 
 
 def validate_api_keys() -> None:
@@ -40,13 +41,17 @@ def validate_api_keys() -> None:
 
 def verify_credentials() -> None:
     """Verify API credentials by making minimal test calls."""
-    global llm_service, config
+    global llm_service, config, embedding_service
 
     if config is None:
         raise RuntimeError("Configuration not loaded")
 
     llm_service = LLMService(config)
     log.info(f"LLM Service initialized with providers: {[p.name for p in llm_service.providers]}")
+
+    if config.embeddings_available():
+        embedding_service = EmbeddingService(os.getenv("OPENAI_API_KEY", ""))
+        log.info("Embedding service initialized")
 
 
 @asynccontextmanager
@@ -226,10 +231,12 @@ async def classify(request: ClassifyRequest) -> ClassifyResponse:
         result = llm_service.call(request.prompt, model_override=request.model)
 
         # Parse classification JSON
+        if result.text is None:
+            raise HTTPException(status_code=500, detail="LLM returned no text content")
         try:
             classification = json.loads(result.text)
         except json.JSONDecodeError as e:
-            log.error(f"Failed to parse classification JSON: {e}\nResponse: {result.text[:500]}")
+            log.error(f"Failed to parse classification JSON: {e}\nResponse: {(result.text or '')[:500]}")
             raise HTTPException(
                 status_code=500,
                 detail=f"Invalid JSON response from LLM: {e}"
@@ -265,10 +272,12 @@ async def plan(request: PlanRequest) -> PlanResponse:
         result = llm_service.call(context_json, request.system_prompt, model_override=request.model)
 
         # Parse plan JSON
+        if result.text is None:
+            raise HTTPException(status_code=500, detail="LLM returned no text content")
         try:
             plan_data = json.loads(result.text)
         except json.JSONDecodeError as e:
-            log.error(f"Failed to parse plan JSON: {e}\nResponse: {result.text[:500]}")
+            log.error(f"Failed to parse plan JSON: {e}\nResponse: {(result.text or '')[:500]}")
             raise HTTPException(
                 status_code=500,
                 detail=f"Invalid JSON response from LLM: {e}"
@@ -300,15 +309,13 @@ async def embed(request: EmbedRequest) -> EmbedResponse:
     if config is None:
         raise HTTPException(status_code=500, detail="Configuration not loaded")
 
-    if not config.openai_api_key:
+    if embedding_service is None:
         raise HTTPException(
             status_code=500,
             detail="OPENAI_API_KEY is required for embeddings but not configured"
         )
 
     try:
-        embedding_service = EmbeddingService(config.openai_api_key)
-
         texts = [request.text] if isinstance(request.text, str) else request.text
 
         result = embedding_service.generate(texts, request.model)
@@ -330,6 +337,8 @@ async def embed(request: EmbedRequest) -> EmbedResponse:
             ai_call_log=ai_call_log,
         )
 
+    except (KeyboardInterrupt, SystemExit):
+        raise
     except Exception as e:
         log.error(f"Embedding generation failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))

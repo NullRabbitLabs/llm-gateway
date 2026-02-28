@@ -4,6 +4,8 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from fastapi.testclient import TestClient
 
+from providers.registry import ProviderConfig
+
 
 @pytest.fixture
 def mock_env_deepseek(monkeypatch):
@@ -48,9 +50,72 @@ def mock_env_auto(monkeypatch):
 
 
 @pytest.fixture
+def deepseek_provider_config():
+    """ProviderConfig for DeepSeek."""
+    return ProviderConfig(
+        name="deepseek",
+        kind="openai_compatible",
+        env_key="DEEPSEEK_API_KEY",
+        env_model="DEEPSEEK_MODEL",
+        default_model="deepseek-chat",
+        base_url="https://api.deepseek.com",
+        timeout=300,
+        api_params={"max_tokens": 8192},
+        features={"reasoning_content": True, "tool_calls": True, "json_mode": False},
+        pricing={"input_per_1k_microcents": 0.12, "output_per_1k_microcents": 0.20},
+    )
+
+
+@pytest.fixture
+def openai_provider_config():
+    """ProviderConfig for OpenAI."""
+    return ProviderConfig(
+        name="openai",
+        kind="openai_compatible",
+        env_key="OPENAI_API_KEY",
+        env_model="OPENAI_MODEL",
+        default_model="gpt-4o-mini",
+        timeout=300,
+        features={"tool_calls": True, "json_mode": True},
+        pricing={"input_per_1k_microcents": 15.0, "output_per_1k_microcents": 60.0},
+    )
+
+
+@pytest.fixture
+def anthropic_provider_config():
+    """ProviderConfig for Anthropic."""
+    return ProviderConfig(
+        name="anthropic",
+        kind="anthropic",
+        env_key="ANTHROPIC_API_KEY",
+        env_model="ANTHROPIC_MODEL",
+        default_model="claude-3-5-sonnet-20241022",
+        timeout=300,
+        api_params={"max_tokens": 16000, "temperature": 0.1},
+        features={"tool_calls": True},
+        pricing={"input_per_1k_microcents": 300.0, "output_per_1k_microcents": 1500.0},
+    )
+
+
+@pytest.fixture
+def gemini_provider_config():
+    """ProviderConfig for Gemini."""
+    return ProviderConfig(
+        name="gemini",
+        kind="gemini",
+        env_key="GEMINI_API_KEY",
+        env_model="GEMINI_MODEL",
+        default_model="gemini-2.0-flash",
+        api_params={"temperature": 0.1},
+        features={"tool_calls": False, "json_mode": True},
+        pricing={"input_per_1k_microcents": 0.10, "output_per_1k_microcents": 0.40},
+    )
+
+
+@pytest.fixture
 def mock_openai_client():
-    """Mock OpenAI client for DeepSeek/OpenAI providers."""
-    with patch("providers.deepseek.OpenAI") as mock_cls:
+    """Mock OpenAI client for OpenAI-compatible providers."""
+    with patch("providers.openai_compatible.OpenAI") as mock_cls:
         mock_client = MagicMock()
         mock_cls.return_value = mock_client
 
@@ -70,7 +135,7 @@ def mock_openai_client():
 @pytest.fixture
 def mock_anthropic_client():
     """Mock Anthropic client."""
-    with patch("providers.anthropic.anthropic.Anthropic") as mock_cls:
+    with patch("providers.anthropic_provider.anthropic.Anthropic") as mock_cls:
         mock_client = MagicMock()
         mock_cls.return_value = mock_client
 

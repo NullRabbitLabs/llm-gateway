@@ -1,6 +1,6 @@
 # LLM Gateway
 
-Multi-provider LLM gateway with automatic fallback and cost tracking. Provides a single HTTP API that routes requests across DeepSeek, Gemini, OpenAI, and Anthropic — trying cheaper providers first and falling back automatically on failure.
+Multi-provider LLM gateway with automatic fallback and cost tracking. Provides a single HTTP API that routes requests across DeepSeek, Gemini, OpenAI, Anthropic, Ollama — and any OpenAI-compatible API — trying cheaper providers first and falling back automatically on failure.
 
 ## Quick Start
 
@@ -13,7 +13,6 @@ pip install -r requirements.txt
 # Set up at least one provider
 export LLM_PROVIDER=deepseek
 export DEEPSEEK_API_KEY=your-key
-export DEEPSEEK_MODEL=deepseek-chat
 
 # Start the server
 python main.py
@@ -117,34 +116,32 @@ Response:
 
 ## Configuration
 
-All configuration is via environment variables. Copy `.env.example` to `.env` and fill in your keys.
+All configuration is via environment variables. Copy `.env.example` to `.env` and fill in your keys. Provider definitions (pricing, timeouts, features) live in `providers.json`.
 
 ### Provider Selection
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `LLM_PROVIDER` | `auto` | Provider: `auto`, `deepseek`, `gemini`, `openai`, `anthropic` |
+| `LLM_PROVIDER` | `auto` | Provider: `auto`, `ollama`, `deepseek`, `gemini`, `openai`, `anthropic` |
 
-When `LLM_PROVIDER=auto`, providers are tried in cost-effectiveness order:
-1. DeepSeek — $0.12/1M input, $0.20/1M output
-2. Gemini — $0.10/1M input, $0.40/1M output
-3. OpenAI — $0.15/1M input, $0.60/1M output
-4. Anthropic — $3/1M input, $15/1M output
+When `LLM_PROVIDER=auto`, providers are tried in the priority order defined in `providers.json` (default: cheapest first). Only providers with configured env vars are used.
 
 ### Provider API Keys
 
 | Variable | Description |
 |----------|-------------|
+| `OLLAMA_HOST` | Ollama server URL (e.g., `http://localhost:11434`) |
+| `OLLAMA_MODEL` | Ollama model (e.g., `qwen2.5-coder:14b`) |
 | `DEEPSEEK_API_KEY` | DeepSeek API key |
-| `DEEPSEEK_MODEL` | DeepSeek model (e.g., `deepseek-chat`) |
+| `DEEPSEEK_MODEL` | DeepSeek model (default: `deepseek-chat`) |
 | `GEMINI_API_KEY` | Google Gemini API key |
-| `GEMINI_MODEL` | Gemini model (e.g., `gemini-2.0-flash`) |
+| `GEMINI_MODEL` | Gemini model (default: `gemini-2.0-flash`) |
 | `OPENAI_API_KEY` | OpenAI API key (also required for `/embed`) |
-| `OPENAI_MODEL` | OpenAI model (e.g., `gpt-4o-mini`) |
+| `OPENAI_MODEL` | OpenAI model (default: `gpt-4o-mini`) |
 | `ANTHROPIC_API_KEY` | Anthropic API key |
-| `ANTHROPIC_MODEL` | Anthropic model (e.g., `claude-3-5-sonnet-20241022`) |
+| `ANTHROPIC_MODEL` | Anthropic model (default: `claude-3-5-sonnet-20241022`) |
 
-At least one provider must have both API key and model configured.
+At least one provider must have its required env vars configured (API key, or host for Ollama). Model env vars are optional — defaults come from `providers.json`.
 
 ### Service Settings
 
@@ -152,6 +149,49 @@ At least one provider must have both API key and model configured.
 |----------|---------|-------------|
 | `PORT` | `8090` | HTTP port |
 | `LOG_LEVEL` | `INFO` | Logging level |
+
+## Adding a New Provider
+
+### OpenAI-compatible providers (zero Python code)
+
+Any provider with an OpenAI-compatible API (Groq, Together, Mistral, etc.) can be added with just a JSON entry. Add to `providers.json`:
+
+```json
+{
+  "providers": {
+    "groq": {
+      "kind": "openai_compatible",
+      "base_url": "https://api.groq.com/openai/v1",
+      "env_key": "GROQ_API_KEY",
+      "env_model": "GROQ_MODEL",
+      "default_model": "llama-3.3-70b-versatile",
+      "timeout": 60,
+      "features": { "tool_calls": true, "json_mode": true },
+      "pricing": { "input_per_1k_microcents": 0.59, "output_per_1k_microcents": 0.79 }
+    }
+  }
+}
+```
+
+Then set `GROQ_API_KEY` in your environment. That's it — no Python changes needed.
+
+### Custom providers
+
+For providers with non-OpenAI APIs (like Anthropic or Gemini), create a provider class in `providers/` that extends `Provider`, then register its `kind` in `providers/registry.py`'s `_KIND_MAP`.
+
+### Provider config fields
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `kind` | Yes | Provider class: `openai_compatible`, `anthropic`, `gemini`, `ollama` |
+| `env_key` | Yes* | Env var for API key (*or `env_host` for Ollama) |
+| `env_model` | No | Env var to override default model |
+| `default_model` | Yes | Fallback model if env var is unset |
+| `base_url` | No | API base URL (omit for default OpenAI endpoint) |
+| `timeout` | No | Request timeout in seconds (default: 300) |
+| `api_params` | No | Extra API params: `max_tokens`, `temperature`, etc. |
+| `features` | No | `tool_calls`, `json_mode`, `reasoning_content` |
+| `pricing` | No | `input_per_1k_microcents`, `output_per_1k_microcents` |
 
 ## Development
 
@@ -178,7 +218,6 @@ docker build -t llm-gateway .
 docker run -p 8090:8090 \
   -e LLM_PROVIDER=auto \
   -e DEEPSEEK_API_KEY=key \
-  -e DEEPSEEK_MODEL=deepseek-chat \
   llm-gateway
 ```
 
@@ -194,9 +233,14 @@ docker run -p 8090:8090 \
 ┌──────────────────────────────────────────────────────┐
 │                  llm-gateway (Python)                 │
 │  ┌────────────────────────────────────────────────┐  │
-│  │ Providers: DeepSeek | Gemini | OpenAI | Anthropic│ │
-│  │ Features: Auto-fallback, Cost tracking, Retries  │ │
-│  │ Endpoints: /plan, /classify, /embed, /health    │ │
+│  │             providers.json (registry)           │  │
+│  │  ┌──────────────────────────────────────────┐  │  │
+│  │  │ OpenAI-compatible: DeepSeek, OpenAI, ... │  │  │
+│  │  │ Custom: Anthropic, Gemini, Ollama        │  │  │
+│  │  └──────────────────────────────────────────┘  │  │
+│  │ Features: Auto-fallback, Cost tracking, Retries │  │
+│  │ Endpoints: /classify, /plan, /embed, /health   │  │
+│  │            /v1/chat/completions                 │  │
 │  └────────────────────────────────────────────────┘  │
 └──────────────────────────────────────────────────────┘
 ```

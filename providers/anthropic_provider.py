@@ -1,18 +1,13 @@
 """Anthropic Claude provider implementation."""
 
 import logging
-from typing import Optional
+from typing import Any, Optional
 
 import anthropic
 
 from .base import Provider, LLMResponse, ToolCall, ProviderError, RateLimitError, _parse_tool_arguments, strip_markdown_fences
 
 log = logging.getLogger("llm-gateway.providers.anthropic")
-
-# Anthropic Claude Sonnet pricing: $3/1M input, $15/1M output
-# In microcents (1 microcent = $0.000001)
-ANTHROPIC_INPUT_COST_PER_1K = 300.0  # microcents
-ANTHROPIC_OUTPUT_COST_PER_1K = 1500.0  # microcents
 
 _STOP_REASON_MAP = {
     "end_turn": "stop",
@@ -27,7 +22,7 @@ def _convert_messages_to_anthropic(messages: list) -> tuple[str | None, list]:
     """
     system_text = None
     converted = []
-    tool_result_buffer = []
+    tool_result_buffer: list[dict] = []
 
     def flush_tool_results():
         if tool_result_buffer:
@@ -52,7 +47,7 @@ def _convert_messages_to_anthropic(messages: list) -> tuple[str | None, list]:
         flush_tool_results()
 
         if role == "assistant" and msg.get("tool_calls"):
-            content_blocks = []
+            content_blocks: list[dict] = []
             text = msg.get("content")
             if text:
                 content_blocks.append({"type": "text", "text": text})
@@ -90,25 +85,38 @@ def _convert_tools_to_anthropic(tools: list) -> list:
 class AnthropicProvider(Provider):
     """Anthropic Claude provider."""
 
-    # Set explicit timeout to handle slow responses
-    DEFAULT_TIMEOUT = 300
-
-    def __init__(self, api_key: str, model: str, timeout: int = DEFAULT_TIMEOUT):
+    def __init__(self, api_key: str, model: str, config=None):
         super().__init__(api_key, model)
+        self._config = config
+
+        timeout = config.timeout if config else 300
+        api_params = config.api_params if config else {}
+        pricing = config.pricing if config else {}
+
+        self._max_tokens: int = api_params.get("max_tokens", 16000)
+        self._temperature: float = api_params.get("temperature", 0.1)
+        self._input_cost_per_1k: float = pricing.get("input_per_1k_microcents", 300.0)
+        self._output_cost_per_1k: float = pricing.get("output_per_1k_microcents", 1500.0)
+
         self.client = anthropic.Anthropic(api_key=api_key, timeout=timeout)
 
     @property
     def name(self) -> str:
         return "anthropic"
 
+    def _compute_cost(self, prompt_tokens: int, completion_tokens: int) -> int:
+        input_cost = (prompt_tokens / 1000) * self._input_cost_per_1k
+        output_cost = (completion_tokens / 1000) * self._output_cost_per_1k
+        return round(input_cost + output_cost)
+
     def _call_api(self, prompt: str, system_prompt: Optional[str], model_override: str | None = None) -> LLMResponse:
         """Call Anthropic API."""
         try:
-            kwargs = {
+            kwargs: dict[str, Any] = {
                 "model": model_override or self.model,
-                "max_tokens": 16000,
+                "max_tokens": self._max_tokens,
                 "messages": [{"role": "user", "content": prompt}],
-                "temperature": 0.1,
+                "temperature": self._temperature,
             }
             if system_prompt:
                 kwargs["system"] = system_prompt
@@ -133,31 +141,22 @@ class AnthropicProvider(Provider):
         prompt_tokens = response.usage.input_tokens if response.usage else 0
         completion_tokens = response.usage.output_tokens if response.usage else 0
 
-        # Calculate cost in microcents
-        input_cost = (prompt_tokens / 1000) * ANTHROPIC_INPUT_COST_PER_1K
-        output_cost = (completion_tokens / 1000) * ANTHROPIC_OUTPUT_COST_PER_1K
-        cost_microcents = round(input_cost + output_cost)
-
         return LLMResponse(
             text=text,
             provider=self.name,
-            model=self.model,
+            model=model_override or self.model,
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
-            cost_microcents=cost_microcents,
-            latency_ms=0,  # Set by base class
+            cost_microcents=self._compute_cost(prompt_tokens, completion_tokens),
+            latency_ms=0,
         )
 
     def _call_api_with_tools(self, messages: list, tools: list | None, model_override: str | None = None) -> LLMResponse:
-        """Call Anthropic API with full message history and optional tools.
-
-        Translates OpenAI-format messages and tools to Anthropic format on the
-        way in, and translates the response back to LLMResponse with ToolCall objects.
-        """
+        """Call Anthropic API with full message history and optional tools."""
         system_text, anthropic_messages = _convert_messages_to_anthropic(messages)
         model = model_override or self.model
 
-        kwargs = {
+        kwargs: dict[str, Any] = {
             "model": model,
             "max_tokens": 4096,
             "messages": anthropic_messages,
@@ -177,8 +176,8 @@ class AnthropicProvider(Provider):
                 raise RateLimitError(str(e)) from e
             raise
 
-        text_parts = []
-        tool_calls = []
+        text_parts: list[str] = []
+        tool_calls: list[ToolCall] = []
         for block in response.content:
             block_type = getattr(block, "type", "")
             if block_type == "text":
@@ -192,13 +191,10 @@ class AnthropicProvider(Provider):
         text = text_parts[0] if text_parts else None
         stop_reason = getattr(response, "stop_reason", "end_turn") or "end_turn"
         finish_reason = _STOP_REASON_MAP.get(stop_reason, stop_reason)
-        resp_model = getattr(response, "model", None) or self.model
+        resp_model = getattr(response, "model", None) or model
 
         prompt_tokens = response.usage.input_tokens if response.usage else 0
         completion_tokens = response.usage.output_tokens if response.usage else 0
-        input_cost = (prompt_tokens / 1000) * ANTHROPIC_INPUT_COST_PER_1K
-        output_cost = (completion_tokens / 1000) * ANTHROPIC_OUTPUT_COST_PER_1K
-        cost_microcents = round(input_cost + output_cost)
 
         return LLMResponse(
             text=text,
@@ -206,8 +202,8 @@ class AnthropicProvider(Provider):
             model=resp_model,
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
-            cost_microcents=cost_microcents,
-            latency_ms=0,  # Set by base class
+            cost_microcents=self._compute_cost(prompt_tokens, completion_tokens),
+            latency_ms=0,
             tool_calls=tool_calls,
             finish_reason=finish_reason,
         )

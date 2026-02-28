@@ -16,8 +16,6 @@ class TestProviderSelection:
 
         config = Config.from_env()
         assert config.provider == "deepseek"
-        assert config.deepseek_api_key == "test-deepseek-key"
-        assert config.deepseek_model == "deepseek-reasoner"
 
     def test_select_provider_explicit_gemini(self, mock_env_gemini):
         """When LLM_PROVIDER=gemini, select Gemini provider."""
@@ -25,8 +23,6 @@ class TestProviderSelection:
 
         config = Config.from_env()
         assert config.provider == "gemini"
-        assert config.gemini_api_key == "test-gemini-key"
-        assert config.gemini_model == "gemini-2.0-flash"
 
     def test_select_provider_explicit_openai(self, mock_env_openai):
         """When LLM_PROVIDER=openai, select OpenAI provider."""
@@ -34,8 +30,6 @@ class TestProviderSelection:
 
         config = Config.from_env()
         assert config.provider == "openai"
-        assert config.openai_api_key == "test-openai-key"
-        assert config.openai_model == "gpt-4o-mini"
 
     def test_select_provider_explicit_anthropic(self, mock_env_anthropic):
         """When LLM_PROVIDER=anthropic, select Anthropic provider."""
@@ -43,18 +37,16 @@ class TestProviderSelection:
 
         config = Config.from_env()
         assert config.provider == "anthropic"
-        assert config.anthropic_api_key == "test-anthropic-key"
-        assert config.anthropic_model == "claude-3-5-sonnet-20241022"
 
-    def test_select_provider_auto_prefers_deepseek(self, mock_env_auto):
-        """In auto mode, DeepSeek should be first choice (cheapest)."""
+    def test_select_provider_auto_prefers_cheapest(self, mock_env_auto):
+        """In auto mode, providers are ordered by auto_priority from providers.json."""
         from services.llm_service import LLMService
         from config import Config
 
         config = Config.from_env()
         service = LLMService(config)
 
-        # First provider in the list should be DeepSeek
+        # With deepseek + gemini configured, deepseek should come first per auto_priority
         assert service.providers[0].name == "deepseek"
 
     def test_select_provider_missing_key_raises(self, monkeypatch):
@@ -68,26 +60,24 @@ class TestProviderSelection:
         with pytest.raises(ValueError, match="DEEPSEEK_API_KEY"):
             Config.from_env()
 
-    def test_select_provider_missing_model_raises(self, monkeypatch):
-        """When provider is set but model is missing, raise error."""
-        monkeypatch.setenv("LLM_PROVIDER", "deepseek")
-        monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key")
-        monkeypatch.delenv("DEEPSEEK_MODEL", raising=False)
+    def test_select_provider_unknown_raises(self, monkeypatch):
+        """When provider is unknown, raise error."""
+        monkeypatch.setenv("LLM_PROVIDER", "nonexistent")
 
         from config import Config
 
-        with pytest.raises(ValueError, match="DEEPSEEK_MODEL"):
+        with pytest.raises(ValueError, match="Unknown LLM_PROVIDER"):
             Config.from_env()
 
 
-class TestDeepSeekProvider:
-    """Test DeepSeek provider implementation."""
+class TestOpenAICompatibleProvider:
+    """Test OpenAI-compatible provider (covers DeepSeek + OpenAI)."""
 
-    def test_deepseek_call_success(self, mock_env_deepseek):
-        """DeepSeek provider returns valid response."""
-        from providers.deepseek import DeepSeekProvider
+    def test_deepseek_call_success(self, mock_env_deepseek, deepseek_provider_config):
+        """DeepSeek via OpenAICompatibleProvider returns valid response."""
+        from providers.openai_compatible import OpenAICompatibleProvider
 
-        with patch("providers.deepseek.OpenAI") as mock_cls:
+        with patch("providers.openai_compatible.OpenAI") as mock_cls:
             mock_client = MagicMock()
             mock_cls.return_value = mock_client
 
@@ -101,7 +91,7 @@ class TestDeepSeekProvider:
 
             mock_client.chat.completions.create.return_value = mock_response
 
-            provider = DeepSeekProvider("test-key", "deepseek-reasoner")
+            provider = OpenAICompatibleProvider("test-key", "deepseek-reasoner", config=deepseek_provider_config)
             result = provider.call("test prompt", "system prompt")
 
             assert result.text == '{"assessment": "complete"}'
@@ -109,11 +99,11 @@ class TestDeepSeekProvider:
             assert result.completion_tokens == 50
             assert result.provider == "deepseek"
 
-    def test_deepseek_call_does_not_force_json_mode(self, mock_env_deepseek):
-        """DeepSeek text path does not force json_object response_format (breaks non-JSON prompts)."""
-        from providers.deepseek import DeepSeekProvider
+    def test_deepseek_call_does_not_force_json_mode(self, mock_env_deepseek, deepseek_provider_config):
+        """DeepSeek text path does not force json_object response_format (json_mode=false)."""
+        from providers.openai_compatible import OpenAICompatibleProvider
 
-        with patch("providers.deepseek.OpenAI") as mock_cls:
+        with patch("providers.openai_compatible.OpenAI") as mock_cls:
             mock_client = MagicMock()
             mock_cls.return_value = mock_client
 
@@ -127,17 +117,88 @@ class TestDeepSeekProvider:
 
             mock_client.chat.completions.create.return_value = mock_response
 
-            provider = DeepSeekProvider("test-key", "deepseek-reasoner")
+            provider = OpenAICompatibleProvider("test-key", "deepseek-reasoner", config=deepseek_provider_config)
             provider.call("test", "system")
 
             call_args = mock_client.chat.completions.create.call_args
             assert "response_format" not in (call_args.kwargs or {})
 
+    def test_openai_call_success(self, mock_env_openai, openai_provider_config):
+        """OpenAI via OpenAICompatibleProvider returns valid response."""
+        from providers.openai_compatible import OpenAICompatibleProvider
+
+        with patch("providers.openai_compatible.OpenAI") as mock_cls:
+            mock_client = MagicMock()
+            mock_cls.return_value = mock_client
+
+            mock_response = MagicMock()
+            mock_response.choices = [MagicMock()]
+            mock_response.choices[0].message.content = '{"assessment": "complete"}'
+            mock_response.usage = MagicMock()
+            mock_response.usage.prompt_tokens = 100
+            mock_response.usage.completion_tokens = 50
+            mock_response.usage.total_tokens = 150
+
+            mock_client.chat.completions.create.return_value = mock_response
+
+            provider = OpenAICompatibleProvider("test-key", "gpt-4o-mini", config=openai_provider_config)
+            result = provider.call("test prompt", "system prompt")
+
+            assert result.text == '{"assessment": "complete"}'
+            assert result.prompt_tokens == 100
+            assert result.completion_tokens == 50
+            assert result.provider == "openai"
+
+    def test_openai_forces_json_mode(self, mock_env_openai, openai_provider_config):
+        """OpenAI provider with json_mode=true sends response_format."""
+        from providers.openai_compatible import OpenAICompatibleProvider
+
+        with patch("providers.openai_compatible.OpenAI") as mock_cls:
+            mock_client = MagicMock()
+            mock_cls.return_value = mock_client
+
+            mock_response = MagicMock()
+            mock_response.choices = [MagicMock()]
+            mock_response.choices[0].message.content = "{}"
+            mock_response.usage = MagicMock()
+            mock_response.usage.prompt_tokens = 10
+            mock_response.usage.completion_tokens = 5
+
+            mock_client.chat.completions.create.return_value = mock_response
+
+            provider = OpenAICompatibleProvider("test-key", "gpt-4o-mini", config=openai_provider_config)
+            provider.call("test", "system")
+
+            call_kwargs = mock_client.chat.completions.create.call_args.kwargs
+            assert call_kwargs.get("response_format") == {"type": "json_object"}
+
+    def test_model_override_in_call_api(self, mock_env_deepseek, deepseek_provider_config):
+        """_call_api returns model_override in the response model field."""
+        from providers.openai_compatible import OpenAICompatibleProvider
+
+        with patch("providers.openai_compatible.OpenAI") as mock_cls:
+            mock_client = MagicMock()
+            mock_cls.return_value = mock_client
+
+            mock_response = MagicMock()
+            mock_response.choices = [MagicMock()]
+            mock_response.choices[0].message.content = "{}"
+            mock_response.usage = MagicMock()
+            mock_response.usage.prompt_tokens = 10
+            mock_response.usage.completion_tokens = 5
+
+            mock_client.chat.completions.create.return_value = mock_response
+
+            provider = OpenAICompatibleProvider("test-key", "deepseek-reasoner", config=deepseek_provider_config)
+            result = provider.call("test", "system", model_override="deepseek-chat")
+
+            assert result.model == "deepseek-chat"
+
 
 class TestGeminiProvider:
     """Test Gemini provider implementation."""
 
-    def test_gemini_call_success(self, mock_env_gemini):
+    def test_gemini_call_success(self, mock_env_gemini, gemini_provider_config):
         """Gemini provider returns valid response."""
         from providers.gemini import GeminiProvider
 
@@ -153,7 +214,7 @@ class TestGeminiProvider:
 
             mock_client.models.generate_content.return_value = mock_response
 
-            provider = GeminiProvider("test-key", "gemini-2.0-flash")
+            provider = GeminiProvider("test-key", "gemini-2.0-flash", config=gemini_provider_config)
             result = provider.call("test prompt", "system prompt")
 
             assert result.text == '{"assessment": "complete"}'
@@ -161,7 +222,7 @@ class TestGeminiProvider:
             assert result.completion_tokens == 50
             assert result.provider == "gemini"
 
-    def test_gemini_strips_markdown(self, mock_env_gemini):
+    def test_gemini_strips_markdown(self, mock_env_gemini, gemini_provider_config):
         """Gemini provider strips markdown code fences from response."""
         from providers.gemini import GeminiProvider
 
@@ -177,46 +238,37 @@ class TestGeminiProvider:
 
             mock_client.models.generate_content.return_value = mock_response
 
-            provider = GeminiProvider("test-key", "gemini-2.0-flash")
+            provider = GeminiProvider("test-key", "gemini-2.0-flash", config=gemini_provider_config)
             result = provider.call("test prompt", "system prompt")
 
             assert result.text == '{"assessment": "complete"}'
 
+    def test_gemini_model_override(self, mock_env_gemini, gemini_provider_config):
+        """Gemini returns model_override in response model field."""
+        from providers.gemini import GeminiProvider
 
-class TestOpenAIProvider:
-    """Test OpenAI provider implementation."""
-
-    def test_openai_call_success(self, mock_env_openai):
-        """OpenAI provider returns valid response."""
-        from providers.openai_provider import OpenAIProvider
-
-        with patch("providers.openai_provider.OpenAI") as mock_cls:
+        with patch("providers.gemini.genai.Client") as mock_cls:
             mock_client = MagicMock()
             mock_cls.return_value = mock_client
 
             mock_response = MagicMock()
-            mock_response.choices = [MagicMock()]
-            mock_response.choices[0].message.content = '{"assessment": "complete"}'
-            mock_response.usage = MagicMock()
-            mock_response.usage.prompt_tokens = 100
-            mock_response.usage.completion_tokens = 50
-            mock_response.usage.total_tokens = 150
+            mock_response.text = "{}"
+            mock_response.usage_metadata = MagicMock()
+            mock_response.usage_metadata.prompt_token_count = 10
+            mock_response.usage_metadata.candidates_token_count = 5
 
-            mock_client.chat.completions.create.return_value = mock_response
+            mock_client.models.generate_content.return_value = mock_response
 
-            provider = OpenAIProvider("test-key", "gpt-4o-mini")
-            result = provider.call("test prompt", "system prompt")
+            provider = GeminiProvider("test-key", "gemini-2.0-flash", config=gemini_provider_config)
+            result = provider.call("test", model_override="gemini-1.5-pro")
 
-            assert result.text == '{"assessment": "complete"}'
-            assert result.prompt_tokens == 100
-            assert result.completion_tokens == 50
-            assert result.provider == "openai"
+            assert result.model == "gemini-1.5-pro"
 
 
 class TestAnthropicProvider:
     """Test Anthropic provider implementation."""
 
-    def test_anthropic_call_success(self, mock_env_anthropic):
+    def test_anthropic_call_success(self, mock_env_anthropic, anthropic_provider_config):
         """Anthropic provider returns valid response."""
         from providers.anthropic_provider import AnthropicProvider
 
@@ -234,7 +286,7 @@ class TestAnthropicProvider:
 
             mock_client.messages.create.return_value = mock_response
 
-            provider = AnthropicProvider("test-key", "claude-3-5-sonnet-20241022")
+            provider = AnthropicProvider("test-key", "claude-3-5-sonnet-20241022", config=anthropic_provider_config)
             result = provider.call("test prompt", "system prompt")
 
             assert result.text == '{"assessment": "complete"}'
@@ -242,7 +294,7 @@ class TestAnthropicProvider:
             assert result.completion_tokens == 50
             assert result.provider == "anthropic"
 
-    def test_anthropic_strips_markdown(self, mock_env_anthropic):
+    def test_anthropic_strips_markdown(self, mock_env_anthropic, anthropic_provider_config):
         """Anthropic provider strips markdown code fences from response."""
         from providers.anthropic_provider import AnthropicProvider
 
@@ -260,10 +312,33 @@ class TestAnthropicProvider:
 
             mock_client.messages.create.return_value = mock_response
 
-            provider = AnthropicProvider("test-key", "claude-3-5-sonnet-20241022")
+            provider = AnthropicProvider("test-key", "claude-3-5-sonnet-20241022", config=anthropic_provider_config)
             result = provider.call("test prompt", "system prompt")
 
             assert result.text == '{"assessment": "complete"}'
+
+    def test_anthropic_model_override(self, mock_env_anthropic, anthropic_provider_config):
+        """Anthropic returns model_override in response model field."""
+        from providers.anthropic_provider import AnthropicProvider
+
+        with patch("providers.anthropic_provider.anthropic.Anthropic") as mock_cls:
+            mock_client = MagicMock()
+            mock_cls.return_value = mock_client
+
+            mock_response = MagicMock()
+            mock_response.content = [MagicMock()]
+            mock_response.content[0].type = "text"
+            mock_response.content[0].text = "{}"
+            mock_response.usage = MagicMock()
+            mock_response.usage.input_tokens = 10
+            mock_response.usage.output_tokens = 5
+
+            mock_client.messages.create.return_value = mock_response
+
+            provider = AnthropicProvider("test-key", "claude-3-5-sonnet-20241022", config=anthropic_provider_config)
+            result = provider.call("test", model_override="claude-3-haiku-20240307")
+
+            assert result.model == "claude-3-haiku-20240307"
 
 
 class TestProviderFallback:
@@ -312,12 +387,12 @@ class TestProviderFallback:
 class TestRetryLogic:
     """Test retry behavior on transient errors."""
 
-    def test_base_provider_does_not_retry_400_errors(self, mock_env_deepseek):
+    def test_base_provider_does_not_retry_400_errors(self, mock_env_deepseek, deepseek_provider_config):
         """400 client errors must NOT be retried — they are deterministic failures."""
-        from providers.deepseek import DeepSeekProvider
+        from providers.openai_compatible import OpenAICompatibleProvider
         from providers.base import ProviderError
 
-        with patch("providers.deepseek.OpenAI") as mock_cls:
+        with patch("providers.openai_compatible.OpenAI") as mock_cls:
             mock_client = MagicMock()
             mock_cls.return_value = mock_client
 
@@ -329,19 +404,18 @@ class TestRetryLogic:
 
             mock_client.chat.completions.create.side_effect = side_effect
 
-            provider = DeepSeekProvider("test-key", "deepseek-reasoner")
+            provider = OpenAICompatibleProvider("test-key", "deepseek-reasoner", config=deepseek_provider_config)
             with pytest.raises(ProviderError):
                 provider.call("test prompt", "system prompt")
 
             # Must NOT retry: only one attempt
             assert call_count[0] == 1, "400 errors should not be retried"
 
-    def test_retry_on_rate_limit(self, mock_env_deepseek):
+    def test_retry_on_rate_limit(self, mock_env_deepseek, deepseek_provider_config):
         """Provider retries on rate limit error."""
-        from providers.deepseek import DeepSeekProvider
-        from providers.base import RateLimitError
+        from providers.openai_compatible import OpenAICompatibleProvider
 
-        with patch("providers.deepseek.OpenAI") as mock_cls:
+        with patch("providers.openai_compatible.OpenAI") as mock_cls:
             mock_client = MagicMock()
             mock_cls.return_value = mock_client
 
@@ -364,7 +438,7 @@ class TestRetryLogic:
 
             mock_client.chat.completions.create.side_effect = side_effect
 
-            provider = DeepSeekProvider("test-key", "deepseek-reasoner")
+            provider = OpenAICompatibleProvider("test-key", "deepseek-reasoner", config=deepseek_provider_config)
             result = provider.call("test prompt", "system prompt")
 
             assert call_count[0] == 2
@@ -374,12 +448,12 @@ class TestRetryLogic:
 class TestProviderTimeouts:
     """Test that providers have appropriate timeouts configured."""
 
-    def test_deepseek_has_timeout_configured(self, mock_env_deepseek):
+    def test_deepseek_has_timeout_configured(self, mock_env_deepseek, deepseek_provider_config):
         """DeepSeek provider should have explicit timeout > 120s for slow reasoning models."""
-        from providers.deepseek import DeepSeekProvider
+        from providers.openai_compatible import OpenAICompatibleProvider
 
-        with patch("providers.deepseek.OpenAI") as mock_cls:
-            provider = DeepSeekProvider("test-key", "deepseek-reasoner")
+        with patch("providers.openai_compatible.OpenAI") as mock_cls:
+            provider = OpenAICompatibleProvider("test-key", "deepseek-reasoner", config=deepseek_provider_config)
 
             # Verify OpenAI client was created with timeout
             call_args = mock_cls.call_args
@@ -389,12 +463,12 @@ class TestProviderTimeouts:
             assert timeout is not None, "DeepSeek provider should have explicit timeout"
             assert timeout >= 180, f"Timeout should be >= 180s for reasoning models, got {timeout}"
 
-    def test_openai_has_timeout_configured(self, mock_env_openai):
+    def test_openai_has_timeout_configured(self, mock_env_openai, openai_provider_config):
         """OpenAI provider should have explicit timeout configured."""
-        from providers.openai_provider import OpenAIProvider
+        from providers.openai_compatible import OpenAICompatibleProvider
 
-        with patch("providers.openai_provider.OpenAI") as mock_cls:
-            provider = OpenAIProvider("test-key", "gpt-4o-mini")
+        with patch("providers.openai_compatible.OpenAI") as mock_cls:
+            provider = OpenAICompatibleProvider("test-key", "gpt-4o-mini", config=openai_provider_config)
 
             call_args = mock_cls.call_args
             timeout = call_args.kwargs.get("timeout")
@@ -406,11 +480,11 @@ class TestProviderTimeouts:
 class TestCostCalculation:
     """Test cost calculation for different providers."""
 
-    def test_deepseek_cost_calculation(self, mock_env_deepseek):
+    def test_deepseek_cost_calculation(self, mock_env_deepseek, deepseek_provider_config):
         """DeepSeek cost is calculated correctly."""
-        from providers.deepseek import DeepSeekProvider
+        from providers.openai_compatible import OpenAICompatibleProvider
 
-        with patch("providers.deepseek.OpenAI") as mock_cls:
+        with patch("providers.openai_compatible.OpenAI") as mock_cls:
             mock_client = MagicMock()
             mock_cls.return_value = mock_client
 
@@ -424,16 +498,15 @@ class TestCostCalculation:
 
             mock_client.chat.completions.create.return_value = mock_response
 
-            provider = DeepSeekProvider("test-key", "deepseek-reasoner")
+            provider = OpenAICompatibleProvider("test-key", "deepseek-reasoner", config=deepseek_provider_config)
             result = provider.call("test", "system")
 
             # DeepSeek: $0.12/1M input = 0.12 microcents/1K tokens
             # DeepSeek: $0.20/1M output = 0.20 microcents/1K tokens
             # 1000 input * 0.12 / 1000 + 500 output * 0.20 / 1000 = 0.12 + 0.10 = 0.22
-            # Rounded to integer microcents
             assert result.cost_microcents is not None
 
-    def test_anthropic_cost_calculation(self, mock_env_anthropic):
+    def test_anthropic_cost_calculation(self, mock_env_anthropic, anthropic_provider_config):
         """Anthropic cost is calculated correctly (more expensive)."""
         from providers.anthropic_provider import AnthropicProvider
 
@@ -451,7 +524,7 @@ class TestCostCalculation:
 
             mock_client.messages.create.return_value = mock_response
 
-            provider = AnthropicProvider("test-key", "claude-3-5-sonnet-20241022")
+            provider = AnthropicProvider("test-key", "claude-3-5-sonnet-20241022", config=anthropic_provider_config)
             result = provider.call("test", "system")
 
             # Anthropic is more expensive than DeepSeek
@@ -551,13 +624,13 @@ class TestToolCallDataclass:
         assert resp.reasoning_content is None
 
 
-class TestOpenAIProviderToolCalls:
-    """Test OpenAI provider tool call support."""
+class TestOpenAICompatibleProviderToolCalls:
+    """Test OpenAI-compatible provider tool call support."""
 
-    def test_call_with_tools_forwards_tools_in_payload(self, mock_env_openai):
-        from providers.openai_provider import OpenAIProvider
+    def test_call_with_tools_forwards_tools_in_payload(self, mock_env_openai, openai_provider_config):
+        from providers.openai_compatible import OpenAICompatibleProvider
 
-        with patch("providers.openai_provider.OpenAI") as mock_cls:
+        with patch("providers.openai_compatible.OpenAI") as mock_cls:
             mock_client = MagicMock()
             mock_cls.return_value = mock_client
 
@@ -571,7 +644,7 @@ class TestOpenAIProviderToolCalls:
             mock_client.chat.completions.create.return_value = mock_response
 
             tools = [{"type": "function", "function": {"name": "run_cmd"}}]
-            provider = OpenAIProvider("test-key", "gpt-4o-mini")
+            provider = OpenAICompatibleProvider("test-key", "gpt-4o-mini", config=openai_provider_config)
             provider.call_with_tools(
                 messages=[{"role": "user", "content": "hi"}],
                 tools=tools,
@@ -580,11 +653,11 @@ class TestOpenAIProviderToolCalls:
             call_kwargs = mock_client.chat.completions.create.call_args.kwargs
             assert call_kwargs["tools"] == tools
 
-    def test_call_with_tools_parses_tool_call_response(self, mock_env_openai):
-        from providers.openai_provider import OpenAIProvider
+    def test_call_with_tools_parses_tool_call_response(self, mock_env_openai, openai_provider_config):
+        from providers.openai_compatible import OpenAICompatibleProvider
         from providers.base import ToolCall
 
-        with patch("providers.openai_provider.OpenAI") as mock_cls:
+        with patch("providers.openai_compatible.OpenAI") as mock_cls:
             mock_client = MagicMock()
             mock_cls.return_value = mock_client
 
@@ -602,7 +675,7 @@ class TestOpenAIProviderToolCalls:
             mock_response.usage = MagicMock(prompt_tokens=10, completion_tokens=5)
             mock_client.chat.completions.create.return_value = mock_response
 
-            provider = OpenAIProvider("test-key", "gpt-4o-mini")
+            provider = OpenAICompatibleProvider("test-key", "gpt-4o-mini", config=openai_provider_config)
             result = provider.call_with_tools(
                 messages=[{"role": "user", "content": "go"}],
             )
@@ -613,10 +686,10 @@ class TestOpenAIProviderToolCalls:
             assert result.tool_calls[0].name == "ssh_exec"
             assert result.tool_calls[0].arguments == {"command": "ls"}
 
-    def test_call_with_tools_no_tools_does_not_send_tools_key(self, mock_env_openai):
-        from providers.openai_provider import OpenAIProvider
+    def test_call_with_tools_no_tools_does_not_send_tools_key(self, mock_env_openai, openai_provider_config):
+        from providers.openai_compatible import OpenAICompatibleProvider
 
-        with patch("providers.openai_provider.OpenAI") as mock_cls:
+        with patch("providers.openai_compatible.OpenAI") as mock_cls:
             mock_client = MagicMock()
             mock_cls.return_value = mock_client
 
@@ -629,52 +702,16 @@ class TestOpenAIProviderToolCalls:
             mock_response.usage = MagicMock(prompt_tokens=5, completion_tokens=3)
             mock_client.chat.completions.create.return_value = mock_response
 
-            provider = OpenAIProvider("test-key", "gpt-4o-mini")
+            provider = OpenAICompatibleProvider("test-key", "gpt-4o-mini", config=openai_provider_config)
             provider.call_with_tools(messages=[{"role": "user", "content": "hi"}], tools=None)
 
             call_kwargs = mock_client.chat.completions.create.call_args.kwargs
             assert "tools" not in call_kwargs
 
+    def test_call_with_tools_preserves_reasoning_content(self, mock_env_deepseek, deepseek_provider_config):
+        from providers.openai_compatible import OpenAICompatibleProvider
 
-class TestDeepSeekProviderToolCalls:
-    """Test DeepSeek provider tool call support (OpenAI-compatible)."""
-
-    def test_call_with_tools_parses_tool_call_response(self, mock_env_deepseek):
-        from providers.deepseek import DeepSeekProvider
-
-        with patch("providers.deepseek.OpenAI") as mock_cls:
-            mock_client = MagicMock()
-            mock_cls.return_value = mock_client
-
-            tc = MagicMock()
-            tc.id = "call_ds_1"
-            tc.function.name = "run_nmap"
-            tc.function.arguments = '{"target": "192.168.1.1"}'
-
-            mock_response = MagicMock()
-            mock_response.choices = [MagicMock()]
-            mock_response.choices[0].message.content = None
-            mock_response.choices[0].message.tool_calls = [tc]
-            mock_response.choices[0].finish_reason = "tool_calls"
-            mock_response.model = "deepseek-reasoner"
-            mock_response.usage = MagicMock(prompt_tokens=20, completion_tokens=10)
-            mock_client.chat.completions.create.return_value = mock_response
-
-            provider = DeepSeekProvider("test-key", "deepseek-reasoner")
-            result = provider.call_with_tools(
-                messages=[{"role": "user", "content": "scan now"}],
-                tools=[{"type": "function", "function": {"name": "run_nmap"}}],
-            )
-
-            assert result.finish_reason == "tool_calls"
-            assert len(result.tool_calls) == 1
-            assert result.tool_calls[0].name == "run_nmap"
-            assert result.tool_calls[0].arguments == {"target": "192.168.1.1"}
-
-    def test_call_with_tools_preserves_reasoning_content(self, mock_env_deepseek):
-        from providers.deepseek import DeepSeekProvider
-
-        with patch("providers.deepseek.OpenAI") as mock_cls:
+        with patch("providers.openai_compatible.OpenAI") as mock_cls:
             mock_client = MagicMock()
             mock_cls.return_value = mock_client
 
@@ -696,7 +733,7 @@ class TestDeepSeekProviderToolCalls:
             mock_response.usage = MagicMock(prompt_tokens=20, completion_tokens=10)
             mock_client.chat.completions.create.return_value = mock_response
 
-            provider = DeepSeekProvider("test-key", "deepseek-reasoner")
+            provider = OpenAICompatibleProvider("test-key", "deepseek-reasoner", config=deepseek_provider_config)
             result = provider.call_with_tools(
                 messages=[{"role": "user", "content": "scan now"}],
                 tools=[{"type": "function", "function": {"name": "run_nmap"}}],
@@ -704,10 +741,11 @@ class TestDeepSeekProviderToolCalls:
 
             assert result.reasoning_content == "thinking about this..."
 
-    def test_call_with_tools_reasoning_content_none_when_absent(self, mock_env_deepseek):
-        from providers.deepseek import DeepSeekProvider
+    def test_call_with_tools_reasoning_content_none_when_absent(self, mock_env_openai, openai_provider_config):
+        """OpenAI provider (reasoning_content=false) does not extract reasoning_content."""
+        from providers.openai_compatible import OpenAICompatibleProvider
 
-        with patch("providers.deepseek.OpenAI") as mock_cls:
+        with patch("providers.openai_compatible.OpenAI") as mock_cls:
             mock_client = MagicMock()
             mock_cls.return_value = mock_client
 
@@ -719,11 +757,11 @@ class TestDeepSeekProviderToolCalls:
             mock_response.choices = [MagicMock()]
             mock_response.choices[0].message = mock_message
             mock_response.choices[0].finish_reason = "stop"
-            mock_response.model = "deepseek-chat"
+            mock_response.model = "gpt-4o-mini"
             mock_response.usage = MagicMock(prompt_tokens=5, completion_tokens=3)
             mock_client.chat.completions.create.return_value = mock_response
 
-            provider = DeepSeekProvider("test-key", "deepseek-chat")
+            provider = OpenAICompatibleProvider("test-key", "gpt-4o-mini", config=openai_provider_config)
             result = provider.call_with_tools(
                 messages=[{"role": "user", "content": "hi"}],
                 tools=None,
@@ -731,11 +769,11 @@ class TestDeepSeekProviderToolCalls:
 
             assert result.reasoning_content is None
 
-    def test_call_with_tools_uses_model_override_in_api_call(self, mock_env_deepseek):
+    def test_call_with_tools_uses_model_override_in_api_call(self, mock_env_deepseek, deepseek_provider_config):
         """When model_override is provided, API call uses the override model, not self.model."""
-        from providers.deepseek import DeepSeekProvider
+        from providers.openai_compatible import OpenAICompatibleProvider
 
-        with patch("providers.deepseek.OpenAI") as mock_cls:
+        with patch("providers.openai_compatible.OpenAI") as mock_cls:
             mock_client = MagicMock()
             mock_cls.return_value = mock_client
 
@@ -751,7 +789,7 @@ class TestDeepSeekProviderToolCalls:
             mock_response.usage = MagicMock(prompt_tokens=5, completion_tokens=3)
             mock_client.chat.completions.create.return_value = mock_response
 
-            provider = DeepSeekProvider("test-key", "deepseek-reasoner")
+            provider = OpenAICompatibleProvider("test-key", "deepseek-reasoner", config=deepseek_provider_config)
             provider.call_with_tools(
                 messages=[{"role": "user", "content": "hi"}],
                 tools=None,
@@ -761,11 +799,11 @@ class TestDeepSeekProviderToolCalls:
             call_kwargs = mock_client.chat.completions.create.call_args.kwargs
             assert call_kwargs["model"] == "deepseek-chat"
 
-    def test_call_with_tools_no_override_uses_self_model(self, mock_env_deepseek):
+    def test_call_with_tools_no_override_uses_self_model(self, mock_env_deepseek, deepseek_provider_config):
         """When model_override is None, API call uses self.model."""
-        from providers.deepseek import DeepSeekProvider
+        from providers.openai_compatible import OpenAICompatibleProvider
 
-        with patch("providers.deepseek.OpenAI") as mock_cls:
+        with patch("providers.openai_compatible.OpenAI") as mock_cls:
             mock_client = MagicMock()
             mock_cls.return_value = mock_client
 
@@ -781,7 +819,7 @@ class TestDeepSeekProviderToolCalls:
             mock_response.usage = MagicMock(prompt_tokens=5, completion_tokens=3)
             mock_client.chat.completions.create.return_value = mock_response
 
-            provider = DeepSeekProvider("test-key", "deepseek-reasoner")
+            provider = OpenAICompatibleProvider("test-key", "deepseek-reasoner", config=deepseek_provider_config)
             provider.call_with_tools(
                 messages=[{"role": "user", "content": "hi"}],
                 tools=None,
@@ -795,7 +833,7 @@ class TestDeepSeekProviderToolCalls:
 class TestAnthropicProviderToolCalls:
     """Test Anthropic provider tool call support with format translation."""
 
-    def test_call_with_tools_translates_tool_schema(self, mock_env_anthropic):
+    def test_call_with_tools_translates_tool_schema(self, mock_env_anthropic, anthropic_provider_config):
         from providers.anthropic_provider import AnthropicProvider
 
         with patch("providers.anthropic_provider.anthropic.Anthropic") as mock_cls:
@@ -819,7 +857,7 @@ class TestAnthropicProviderToolCalls:
                     },
                 }
             ]
-            provider = AnthropicProvider("test-key", "claude-3-5-sonnet-20241022")
+            provider = AnthropicProvider("test-key", "claude-3-5-sonnet-20241022", config=anthropic_provider_config)
             provider.call_with_tools(
                 messages=[{"role": "user", "content": "run ls"}],
                 tools=tools,
@@ -833,7 +871,7 @@ class TestAnthropicProviderToolCalls:
             assert "input_schema" in anthropic_tool
             assert "parameters" not in anthropic_tool
 
-    def test_call_with_tools_extracts_system_message(self, mock_env_anthropic):
+    def test_call_with_tools_extracts_system_message(self, mock_env_anthropic, anthropic_provider_config):
         from providers.anthropic_provider import AnthropicProvider
 
         with patch("providers.anthropic_provider.anthropic.Anthropic") as mock_cls:
@@ -851,7 +889,7 @@ class TestAnthropicProviderToolCalls:
                 {"role": "system", "content": "You are a scanner."},
                 {"role": "user", "content": "scan"},
             ]
-            provider = AnthropicProvider("test-key", "claude-3-5-sonnet-20241022")
+            provider = AnthropicProvider("test-key", "claude-3-5-sonnet-20241022", config=anthropic_provider_config)
             provider.call_with_tools(messages=messages)
 
             call_kwargs = mock_client.messages.create.call_args.kwargs
@@ -860,7 +898,7 @@ class TestAnthropicProviderToolCalls:
             for msg in call_kwargs["messages"]:
                 assert msg.get("role") != "system"
 
-    def test_call_with_tools_parses_tool_use_response(self, mock_env_anthropic):
+    def test_call_with_tools_parses_tool_use_response(self, mock_env_anthropic, anthropic_provider_config):
         from providers.anthropic_provider import AnthropicProvider
 
         with patch("providers.anthropic_provider.anthropic.Anthropic") as mock_cls:
@@ -880,7 +918,7 @@ class TestAnthropicProviderToolCalls:
             mock_response.usage = MagicMock(input_tokens=20, output_tokens=10)
             mock_client.messages.create.return_value = mock_response
 
-            provider = AnthropicProvider("test-key", "claude-3-5-sonnet-20241022")
+            provider = AnthropicProvider("test-key", "claude-3-5-sonnet-20241022", config=anthropic_provider_config)
             result = provider.call_with_tools(messages=[{"role": "user", "content": "go"}])
 
             assert result.finish_reason == "tool_calls"
@@ -890,7 +928,7 @@ class TestAnthropicProviderToolCalls:
             assert result.tool_calls[0].arguments == {"command": "ls -la"}
             assert result.text is None
 
-    def test_call_with_tools_maps_end_turn_to_stop(self, mock_env_anthropic):
+    def test_call_with_tools_maps_end_turn_to_stop(self, mock_env_anthropic, anthropic_provider_config):
         from providers.anthropic_provider import AnthropicProvider
 
         with patch("providers.anthropic_provider.anthropic.Anthropic") as mock_cls:
@@ -908,14 +946,14 @@ class TestAnthropicProviderToolCalls:
             mock_response.usage = MagicMock(input_tokens=10, output_tokens=5)
             mock_client.messages.create.return_value = mock_response
 
-            provider = AnthropicProvider("test-key", "claude-3-5-sonnet-20241022")
+            provider = AnthropicProvider("test-key", "claude-3-5-sonnet-20241022", config=anthropic_provider_config)
             result = provider.call_with_tools(messages=[{"role": "user", "content": "done?"}])
 
             assert result.finish_reason == "stop"
             assert result.text == "Done"
             assert result.tool_calls == []
 
-    def test_call_with_tools_converts_tool_result_messages(self, mock_env_anthropic):
+    def test_call_with_tools_converts_tool_result_messages(self, mock_env_anthropic, anthropic_provider_config):
         from providers.anthropic_provider import AnthropicProvider
 
         with patch("providers.anthropic_provider.anthropic.Anthropic") as mock_cls:
@@ -938,7 +976,7 @@ class TestAnthropicProviderToolCalls:
                 },
                 {"role": "tool", "tool_call_id": "c1", "content": "file1.txt\nfile2.txt"},
             ]
-            provider = AnthropicProvider("test-key", "claude-3-5-sonnet-20241022")
+            provider = AnthropicProvider("test-key", "claude-3-5-sonnet-20241022", config=anthropic_provider_config)
             provider.call_with_tools(messages=messages)
 
             call_kwargs = mock_client.messages.create.call_args.kwargs
@@ -1011,3 +1049,71 @@ class TestLLMServiceCallWithTools:
         result = service.call_with_tools(messages=[{"role": "user", "content": "hi"}])
 
         assert result.provider == "gemini"
+
+
+class TestProviderRegistry:
+    """Test provider registry loading and instantiation."""
+
+    def test_load_provider_configs(self):
+        from providers.registry import load_provider_configs
+
+        auto_priority, configs = load_provider_configs()
+        assert "deepseek" in configs
+        assert "openai" in configs
+        assert "anthropic" in configs
+        assert "gemini" in configs
+        assert "ollama" in configs
+        assert len(auto_priority) > 0
+
+    def test_provider_config_has_correct_kind(self):
+        from providers.registry import load_provider_configs
+
+        _, configs = load_provider_configs()
+        assert configs["deepseek"].kind == "openai_compatible"
+        assert configs["openai"].kind == "openai_compatible"
+        assert configs["anthropic"].kind == "anthropic"
+        assert configs["gemini"].kind == "gemini"
+        assert configs["ollama"].kind == "ollama"
+
+    def test_is_provider_configured_checks_env(self, monkeypatch):
+        from providers.registry import is_provider_configured, ProviderConfig
+
+        pc = ProviderConfig(name="test", kind="openai_compatible", env_key="TEST_API_KEY")
+        assert not is_provider_configured(pc)
+
+        monkeypatch.setenv("TEST_API_KEY", "some-key")
+        assert is_provider_configured(pc)
+
+    def test_is_provider_configured_ollama_checks_host(self, monkeypatch):
+        from providers.registry import is_provider_configured, ProviderConfig
+
+        pc = ProviderConfig(name="ollama", kind="ollama", env_host="OLLAMA_HOST")
+        assert not is_provider_configured(pc)
+
+        monkeypatch.setenv("OLLAMA_HOST", "http://localhost:11434")
+        assert is_provider_configured(pc)
+
+    def test_create_providers_for_mode_auto(self, mock_env_auto):
+        from providers.registry import load_provider_configs, create_providers_for_mode
+
+        auto_priority, configs = load_provider_configs()
+        providers = create_providers_for_mode("auto", auto_priority, configs)
+
+        names = [p.name for p in providers]
+        assert "deepseek" in names
+        assert "gemini" in names
+
+    def test_create_providers_for_mode_explicit(self, mock_env_deepseek):
+        from providers.registry import load_provider_configs, create_providers_for_mode
+
+        auto_priority, configs = load_provider_configs()
+        providers = create_providers_for_mode("deepseek", auto_priority, configs)
+
+        assert len(providers) == 1
+        assert providers[0].name == "deepseek"
+
+    def test_create_providers_for_mode_unknown_raises(self):
+        from providers.registry import create_providers_for_mode
+
+        with pytest.raises(ValueError, match="Unknown LLM_PROVIDER"):
+            create_providers_for_mode("nonexistent", [], {})

@@ -1,0 +1,53 @@
+{
+  "auto_priority": ["ollama", "deepseek", "gemini", "openai", "anthropic"],
+  "providers": {
+    "deepseek": {
+      "kind": "openai_compatible",
+      "base_url": "https://api.deepseek.com",
+      "env_key": "DEEPSEEK_API_KEY",
+      "env_model": "DEEPSEEK_MODEL",
+      "default_model": "deepseek-chat",
+      "timeout": 300,
+      "api_params": { "max_tokens": 8192 },
+      "features": { "reasoning_content": true, "tool_calls": true, "json_mode": false },
+      "pricing": { "input_per_1k_microcents": 0.12, "output_per_1k_microcents": 0.20 }
+    },
+    "openai": {
+      "kind": "openai_compatible",
+      "env_key": "OPENAI_API_KEY",
+      "env_model": "OPENAI_MODEL",
+      "default_model": "gpt-4o-mini",
+      "timeout": 300,
+      "features": { "tool_calls": true, "json_mode": true },
+      "pricing": { "input_per_1k_microcents": 15.0, "output_per_1k_microcents": 60.0 }
+    },
+    "anthropic": {
+      "kind": "anthropic",
+      "env_key": "ANTHROPIC_API_KEY",
+      "env_model": "ANTHROPIC_MODEL",
+      "default_model": "claude-3-5-sonnet-20241022",
+      "timeout": 300,
+      "api_params": { "max_tokens": 16000, "temperature": 0.1 },
+      "features": { "tool_calls": true },
+      "pricing": { "input_per_1k_microcents": 300.0, "output_per_1k_microcents": 1500.0 }
+    },
+    "gemini": {
+      "kind": "gemini",
+      "env_key": "GEMINI_API_KEY",
+      "env_model": "GEMINI_MODEL",
+      "default_model": "gemini-2.0-flash",
+      "api_params": { "temperature": 0.1 },
+      "features": { "tool_calls": false, "json_mode": true },
+      "pricing": { "input_per_1k_microcents": 0.10, "output_per_1k_microcents": 0.40 }
+    },
+    "ollama": {
+      "kind": "ollama",
+      "env_host": "OLLAMA_HOST",
+      "env_model": "OLLAMA_MODEL",
+      "default_model": "qwen2.5-coder:14b",
+      "timeout": 120,
+      "features": { "tool_calls": true },
+      "pricing": { "input_per_1k_microcents": 0, "output_per_1k_microcents": 0 }
+    }
+  }
+}

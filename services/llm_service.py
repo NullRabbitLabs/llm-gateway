@@ -5,11 +5,7 @@ from typing import Optional
 
 from config import Config
 from providers.base import Provider, ProviderError, LLMResponse
-from providers.deepseek import DeepSeekProvider
-from providers.gemini import GeminiProvider
-from providers.openai_provider import OpenAIProvider
-from providers.anthropic_provider import AnthropicProvider
-from providers.ollama import OllamaProvider
+from providers.registry import create_providers_for_mode
 
 log = logging.getLogger("llm-gateway.service")
 
@@ -27,10 +23,12 @@ class LLMService:
         """Initialize LLM service with configured providers.
 
         Args:
-            config: Configuration with API keys and provider settings
+            config: Configuration with provider settings
         """
         self.config = config
-        self.providers: list[Provider] = self._init_providers(config)
+        self.providers: list[Provider] = create_providers_for_mode(
+            config.provider, config.auto_priority, config.provider_configs,
+        )
 
         if not self.providers:
             raise ValueError("No LLM providers configured")
@@ -38,51 +36,13 @@ class LLMService:
         log.info(f"LLM Service initialized with {len(self.providers)} providers: "
                  f"{[p.name for p in self.providers]}")
 
-    def _init_providers(self, config: Config) -> list[Provider]:
-        """Initialize providers based on configuration.
-
-        In auto mode, providers are ordered by cost-effectiveness:
-        0. Ollama (free / local)
-        1. DeepSeek (cheapest)
-        2. Gemini (very cheap)
-        3. OpenAI (mid-tier)
-        4. Anthropic (premium)
-        """
-        providers = []
-
-        if config.provider == "auto":
-            # Auto mode: add all configured providers in cost order
-            if config.ollama_host and config.ollama_model:
-                providers.append(OllamaProvider(config.ollama_host, config.ollama_model))
-            if config.deepseek_api_key and config.deepseek_model:
-                providers.append(DeepSeekProvider(config.deepseek_api_key, config.deepseek_model))
-            if config.gemini_api_key and config.gemini_model:
-                providers.append(GeminiProvider(config.gemini_api_key, config.gemini_model))
-            if config.openai_api_key and config.openai_model:
-                providers.append(OpenAIProvider(config.openai_api_key, config.openai_model))
-            if config.anthropic_api_key and config.anthropic_model:
-                providers.append(AnthropicProvider(config.anthropic_api_key, config.anthropic_model))
-        else:
-            # Explicit provider selection
-            if config.provider == "ollama":
-                providers.append(OllamaProvider(config.ollama_host, config.ollama_model))
-            elif config.provider == "deepseek":
-                providers.append(DeepSeekProvider(config.deepseek_api_key, config.deepseek_model))
-            elif config.provider == "gemini":
-                providers.append(GeminiProvider(config.gemini_api_key, config.gemini_model))
-            elif config.provider == "openai":
-                providers.append(OpenAIProvider(config.openai_api_key, config.openai_model))
-            elif config.provider == "anthropic":
-                providers.append(AnthropicProvider(config.anthropic_api_key, config.anthropic_model))
-
-        return providers
-
     def call(self, prompt: str, system_prompt: Optional[str] = None, model_override: str | None = None) -> LLMResponse:
         """Call LLM with auto-fallback on failure.
 
         Args:
             prompt: User prompt/context
             system_prompt: Optional system prompt
+            model_override: Optional model name override
 
         Returns:
             LLMResponse with text and metadata
@@ -119,6 +79,7 @@ class LLMService:
         Args:
             messages: Full conversation history as list of dicts (OpenAI format)
             tools: Optional list of OpenAI function schema dicts
+            model_override: Optional model name override
 
         Returns:
             LLMResponse with text, tool_calls, and finish_reason

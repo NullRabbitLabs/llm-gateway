@@ -25,8 +25,9 @@ class TestEmbedEndpoint:
                 mock_client.embeddings.create.return_value = mock_response
 
                 import main
+                from services.embedding_service import EmbeddingService
                 main.config = MagicMock()
-                main.config.openai_api_key = "test-openai-key"
+                main.embedding_service = EmbeddingService("test-openai-key")
 
                 client = TestClient(main.app)
 
@@ -58,8 +59,9 @@ class TestEmbedEndpoint:
                 mock_client.embeddings.create.return_value = mock_response
 
                 import main
+                from services.embedding_service import EmbeddingService
                 main.config = MagicMock()
-                main.config.openai_api_key = "test-openai-key"
+                main.embedding_service = EmbeddingService("test-openai-key")
 
                 client = TestClient(main.app)
 
@@ -108,7 +110,7 @@ class TestEmbedEndpoint:
         with patch("main.validate_api_keys"), patch("main.verify_credentials"):
             import main
             main.config = MagicMock()
-            main.config.openai_api_key = None
+            main.embedding_service = None
 
             client = TestClient(main.app)
 
@@ -137,8 +139,9 @@ class TestEmbedEndpoint:
                 mock_client.embeddings.create.return_value = mock_response
 
                 import main
+                from services.embedding_service import EmbeddingService
                 main.config = MagicMock()
-                main.config.openai_api_key = "test-openai-key"
+                main.embedding_service = EmbeddingService("test-openai-key")
 
                 client = TestClient(main.app)
 
@@ -171,8 +174,9 @@ class TestEmbedEndpoint:
                 mock_client.embeddings.create.return_value = mock_response
 
                 import main
+                from services.embedding_service import EmbeddingService
                 main.config = MagicMock()
-                main.config.openai_api_key = "test-openai-key"
+                main.embedding_service = EmbeddingService("test-openai-key")
 
                 client = TestClient(main.app)
 
