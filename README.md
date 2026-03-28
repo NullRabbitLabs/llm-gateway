@@ -222,11 +222,26 @@ pytest tests/test_providers.py -v
 
 ### Docker
 
-```bash
-# Build
-docker build -t llm-gateway .
+Pre-built images are published to GitHub Container Registry on every release.
 
-# Run
+```bash
+# Pull and run
+docker run -p 8090:8090 \
+  -e LLM_PROVIDER=auto \
+  -e DEEPSEEK_API_KEY=key \
+  ghcr.io/nullrabbitlabs/llm-gateway:latest
+```
+
+Pin to a specific version in production:
+
+```bash
+docker pull ghcr.io/nullrabbitlabs/llm-gateway:1.0.0
+```
+
+To build locally instead:
+
+```bash
+docker build -t llm-gateway .
 docker run -p 8090:8090 \
   -e LLM_PROVIDER=auto \
   -e DEEPSEEK_API_KEY=key \
