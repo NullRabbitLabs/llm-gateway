@@ -191,6 +191,43 @@ class TestEmbedEndpoint:
                 assert call_args.kwargs.get("model") == "text-embedding-3-large"
 
 
+class TestVersionedEmbedEndpoint:
+    """Test /api/v1.0/embed endpoint."""
+
+    def test_v1_embed_single_text_success(self, mock_env_openai):
+        """POST /api/v1.0/embed works identically to legacy /embed."""
+        with patch("main.validate_api_keys"), patch("main.verify_credentials"):
+            with patch("services.embedding_service.OpenAI") as mock_openai:
+                mock_client = MagicMock()
+                mock_openai.return_value = mock_client
+
+                mock_response = MagicMock()
+                mock_response.data = [MagicMock()]
+                mock_response.data[0].embedding = [0.1] * 1536
+                mock_response.usage = MagicMock()
+                mock_response.usage.prompt_tokens = 5
+                mock_response.usage.total_tokens = 5
+                mock_client.embeddings.create.return_value = mock_response
+
+                import main
+                from services.embedding_service import EmbeddingService
+                main.config = MagicMock()
+                main.embedding_service = EmbeddingService("test-openai-key")
+
+                client = TestClient(main.app)
+
+                response = client.post("/api/v1.0/embed", json={
+                    "text": "test embedding"
+                })
+
+                assert response.status_code == 200
+                data = response.json()
+                assert "embeddings" in data
+                assert len(data["embeddings"]) == 1
+                assert len(data["embeddings"][0]) == 1536
+                assert data["dimensions"] == 1536
+
+
 class TestEmbeddingService:
     """Test EmbeddingService class directly."""
 

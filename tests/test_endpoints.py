@@ -578,6 +578,129 @@ class TestAuditLogging:
                 assert "completion_tokens=" in complete_log
 
 
+class TestVersionedRoutes:
+    """Test new /api/v1.0/ versioned endpoints."""
+
+    def test_v1_classify(self, mock_env_deepseek):
+        """POST /api/v1.0/classify works."""
+        with patch("main.validate_api_keys"), patch("main.verify_credentials"):
+            with patch("main.llm_service") as mock_service:
+                mock_result = MagicMock()
+                mock_result.text = '{"category": "test"}'
+                mock_result.provider = "deepseek"
+                mock_result.model = "deepseek-reasoner"
+                mock_result.prompt_tokens = 10
+                mock_result.completion_tokens = 5
+                mock_result.cost_microcents = 0
+                mock_result.latency_ms = 100
+                mock_service.call.return_value = mock_result
+
+                from main import app
+                client = TestClient(app)
+
+                response = client.post("/api/v1.0/classify", json={"prompt": "classify this"})
+
+                assert response.status_code == 200
+                data = response.json()
+                assert "classification" in data
+                assert "ai_call_log" in data
+
+    def test_v1_plan(self, mock_env_deepseek):
+        """POST /api/v1.0/plan works."""
+        with patch("main.validate_api_keys"), patch("main.verify_credentials"):
+            with patch("main.llm_service") as mock_service:
+                mock_result = MagicMock()
+                mock_result.text = '{"assessment": "complete", "probes": []}'
+                mock_result.provider = "deepseek"
+                mock_result.model = "deepseek-reasoner"
+                mock_result.prompt_tokens = 10
+                mock_result.completion_tokens = 5
+                mock_result.cost_microcents = 0
+                mock_result.latency_ms = 100
+                mock_service.call.return_value = mock_result
+
+                from main import app
+                client = TestClient(app)
+
+                response = client.post("/api/v1.0/plan", json={
+                    "context": {"task": "test"},
+                    "system_prompt": "You are a planner."
+                })
+
+                assert response.status_code == 200
+                data = response.json()
+                assert "plan" in data
+                assert "ai_call_log" in data
+
+    def test_v1_chat_completions(self, mock_env_deepseek):
+        """POST /api/v1.0/chat/completions works."""
+        with patch("main.validate_api_keys"), patch("main.verify_credentials"):
+            with patch("main.llm_service") as mock_service:
+                mock_result = MagicMock()
+                mock_result.text = "Hello!"
+                mock_result.provider = "deepseek"
+                mock_result.model = "deepseek-reasoner"
+                mock_result.prompt_tokens = 10
+                mock_result.completion_tokens = 5
+                mock_result.cost_microcents = 0
+                mock_result.latency_ms = 100
+                mock_service.call.return_value = mock_result
+
+                from main import app
+                client = TestClient(app)
+
+                response = client.post("/api/v1.0/chat/completions", json={
+                    "model": "default",
+                    "messages": [{"role": "user", "content": "Hello"}],
+                })
+
+                assert response.status_code == 200
+                data = response.json()
+                assert data["choices"][0]["message"]["content"] == "Hello!"
+
+    def test_v1_health(self, mock_env_deepseek):
+        """GET /api/v1.0/health works."""
+        with patch("main.validate_api_keys"), patch("main.verify_credentials"):
+            import main
+            mock_service = MagicMock()
+            mock_service.get_provider_info.return_value = [{"name": "deepseek", "model": "deepseek-reasoner"}]
+            main.llm_service = mock_service
+
+            client = TestClient(main.app)
+
+            response = client.get("/api/v1.0/health")
+
+            assert response.status_code == 200
+            data = response.json()
+            assert data["status"] == "healthy"
+
+
+class TestLegacyRoutesDeprecated:
+    """Verify legacy routes still work and are marked deprecated in OpenAPI schema."""
+
+    def test_legacy_routes_marked_deprecated(self, mock_env_deepseek):
+        """Legacy routes are deprecated in OpenAPI spec, new routes are not."""
+        with patch("main.validate_api_keys"), patch("main.verify_credentials"):
+            from main import app
+            client = TestClient(app)
+
+            openapi = client.get("/openapi.json").json()
+
+            # Legacy routes should be deprecated
+            assert openapi["paths"]["/classify"]["post"]["deprecated"] is True
+            assert openapi["paths"]["/plan"]["post"]["deprecated"] is True
+            assert openapi["paths"]["/embed"]["post"]["deprecated"] is True
+            assert openapi["paths"]["/v1/chat/completions"]["post"]["deprecated"] is True
+            assert openapi["paths"]["/health"]["get"]["deprecated"] is True
+
+            # New versioned routes should NOT be deprecated
+            assert openapi["paths"]["/api/v1.0/classify"]["post"].get("deprecated") is not True
+            assert openapi["paths"]["/api/v1.0/plan"]["post"].get("deprecated") is not True
+            assert openapi["paths"]["/api/v1.0/embed"]["post"].get("deprecated") is not True
+            assert openapi["paths"]["/api/v1.0/chat/completions"]["post"].get("deprecated") is not True
+            assert openapi["paths"]["/api/v1.0/health"]["get"].get("deprecated") is not True
+
+
 class TestRequestValidation:
     """Test request body validation."""
 

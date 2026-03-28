@@ -22,30 +22,42 @@ The server runs on `http://localhost:8090` by default.
 
 ## API Endpoints
 
+All endpoints are served under `/api/v1.0/`.
+
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/classify` | POST | Classify items using AI (returns JSON) |
-| `/plan` | POST | Generate structured plans using AI (returns JSON) |
-| `/embed` | POST | Generate text embeddings (requires OPENAI_API_KEY) |
-| `/v1/chat/completions` | POST | OpenAI-compatible chat with optional tool call support |
-| `/health` | GET | Health check with provider status |
+| `/api/v1.0/classify` | POST | Classify items using AI (returns JSON) |
+| `/api/v1.0/plan` | POST | Generate structured plans using AI (returns JSON) |
+| `/api/v1.0/embed` | POST | Generate text embeddings (requires OPENAI_API_KEY) |
+| `/api/v1.0/chat/completions` | POST | OpenAI-compatible chat with optional tool call support |
+| `/api/v1.0/health` | GET | Health check with provider status |
 
-### POST /classify
+> **Deprecated endpoints:** The following unversioned routes still work but are deprecated and will be removed in a future release. Migrate to the `/api/v1.0/` equivalents above.
+>
+> | Legacy Endpoint | Replacement |
+> |----------------|-------------|
+> | `POST /classify` | `POST /api/v1.0/classify` |
+> | `POST /plan` | `POST /api/v1.0/plan` |
+> | `POST /embed` | `POST /api/v1.0/embed` |
+> | `POST /v1/chat/completions` | `POST /api/v1.0/chat/completions` |
+> | `GET /health` | `GET /api/v1.0/health` |
+
+### POST /api/v1.0/classify
 
 Send a prompt, get back a JSON classification response.
 
 ```bash
-curl -X POST http://localhost:8090/classify \
+curl -X POST http://localhost:8090/api/v1.0/classify \
   -H "Content-Type: application/json" \
   -d '{"prompt": "Classify these items: ..."}'
 ```
 
-### POST /plan
+### POST /api/v1.0/plan
 
 Generate a structured plan from context and a system prompt.
 
 ```bash
-curl -X POST http://localhost:8090/plan \
+curl -X POST http://localhost:8090/api/v1.0/plan \
   -H "Content-Type: application/json" \
   -d '{
     "context": {"task": "...", "constraints": []},
@@ -53,12 +65,12 @@ curl -X POST http://localhost:8090/plan \
   }'
 ```
 
-### POST /embed
+### POST /api/v1.0/embed
 
 Generate text embeddings using OpenAI's embedding models.
 
 ```bash
-curl -X POST http://localhost:8090/embed \
+curl -X POST http://localhost:8090/api/v1.0/embed \
   -H "Content-Type: application/json" \
   -d '{"text": "text to embed"}'
 ```
@@ -85,24 +97,24 @@ Response:
 }
 ```
 
-### POST /v1/chat/completions
+### POST /api/v1.0/chat/completions
 
 OpenAI-compatible endpoint supporting optional tool calls. Provider-specific translation (e.g. Anthropic tool format) is handled transparently.
 
 ```bash
-curl -X POST http://localhost:8090/v1/chat/completions \
+curl -X POST http://localhost:8090/api/v1.0/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
     "messages": [{"role": "user", "content": "Hello"}]
   }'
 ```
 
-### GET /health
+### GET /api/v1.0/health
 
 Check service health and provider status.
 
 ```bash
-curl http://localhost:8090/health
+curl http://localhost:8090/api/v1.0/health
 ```
 
 Response:
@@ -239,8 +251,8 @@ docker run -p 8090:8090 \
 │  │  │ Custom: Anthropic, Gemini, Ollama        │  │  │
 │  │  └──────────────────────────────────────────┘  │  │
 │  │ Features: Auto-fallback, Cost tracking, Retries │  │
-│  │ Endpoints: /classify, /plan, /embed, /health   │  │
-│  │            /v1/chat/completions                 │  │
+│  │ Endpoints: /api/v1.0/classify, /plan, /embed    │  │
+│  │            /chat/completions, /health           │  │
 │  └────────────────────────────────────────────────┘  │
 └──────────────────────────────────────────────────────┘
 ```

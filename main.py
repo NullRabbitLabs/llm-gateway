@@ -8,7 +8,7 @@ import uuid
 from contextlib import asynccontextmanager
 from typing import Any, Optional
 
-from fastapi import FastAPI, HTTPException
+from fastapi import APIRouter, FastAPI, HTTPException
 from pydantic import BaseModel, Field, field_validator
 
 # Add current directory to path for imports
@@ -79,6 +79,9 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
 )
+
+# Versioned API router
+v1_router = APIRouter(prefix="/api/v1.0", tags=["v1.0"])
 
 
 # Request/Response models
@@ -221,7 +224,7 @@ class ErrorResponse(BaseModel):
 # Endpoints
 
 
-@app.post("/classify", response_model=ClassifyResponse, responses={500: {"model": ErrorResponse}})
+@v1_router.post("/classify", response_model=ClassifyResponse, responses={500: {"model": ErrorResponse}})
 async def classify(request: ClassifyRequest) -> ClassifyResponse:
     """Classify items using AI."""
     if llm_service is None:
@@ -259,7 +262,7 @@ async def classify(request: ClassifyRequest) -> ClassifyResponse:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/plan", response_model=PlanResponse, responses={500: {"model": ErrorResponse}})
+@v1_router.post("/plan", response_model=PlanResponse, responses={500: {"model": ErrorResponse}})
 async def plan(request: PlanRequest) -> PlanResponse:
     """Generate a structured plan using AI."""
     if llm_service is None:
@@ -300,7 +303,7 @@ async def plan(request: PlanRequest) -> PlanResponse:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/embed", response_model=EmbedResponse, responses={500: {"model": ErrorResponse}})
+@v1_router.post("/embed", response_model=EmbedResponse, responses={500: {"model": ErrorResponse}})
 async def embed(request: EmbedRequest) -> EmbedResponse:
     """Generate text embeddings using OpenAI API.
 
@@ -344,7 +347,7 @@ async def embed(request: EmbedRequest) -> EmbedResponse:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/v1/chat/completions", response_model=ChatCompletionResponse, responses={500: {"model": ErrorResponse}})
+@v1_router.post("/chat/completions", response_model=ChatCompletionResponse, responses={500: {"model": ErrorResponse}})
 async def chat_completions(request: ChatCompletionRequest) -> ChatCompletionResponse:
     """OpenAI-compatible chat completions endpoint with optional tool support.
 
@@ -459,7 +462,7 @@ async def chat_completions(request: ChatCompletionRequest) -> ChatCompletionResp
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/health", response_model=HealthResponse)
+@v1_router.get("/health", response_model=HealthResponse)
 async def health() -> HealthResponse:
     """Health check endpoint with provider status."""
     providers = []
@@ -473,6 +476,16 @@ async def health() -> HealthResponse:
         providers=providers,
         embeddings_available=embeddings_available,
     )
+
+
+app.include_router(v1_router)
+
+# Legacy routes (deprecated — migrate to /api/v1.0/ equivalents)
+app.add_api_route("/classify", classify, methods=["POST"], response_model=ClassifyResponse, responses={500: {"model": ErrorResponse}}, deprecated=True, tags=["legacy"], name="legacy_classify")
+app.add_api_route("/plan", plan, methods=["POST"], response_model=PlanResponse, responses={500: {"model": ErrorResponse}}, deprecated=True, tags=["legacy"], name="legacy_plan")
+app.add_api_route("/embed", embed, methods=["POST"], response_model=EmbedResponse, responses={500: {"model": ErrorResponse}}, deprecated=True, tags=["legacy"], name="legacy_embed")
+app.add_api_route("/v1/chat/completions", chat_completions, methods=["POST"], response_model=ChatCompletionResponse, responses={500: {"model": ErrorResponse}}, deprecated=True, tags=["legacy"], name="legacy_chat_completions")
+app.add_api_route("/health", health, methods=["GET"], response_model=HealthResponse, deprecated=True, tags=["legacy"], name="legacy_health")
 
 
 if __name__ == "__main__":
