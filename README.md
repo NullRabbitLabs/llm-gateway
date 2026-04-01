@@ -42,6 +42,16 @@ All endpoints are served under `/api/v1.0/`.
 > | `POST /v1/chat/completions` | `POST /api/v1.0/chat/completions` |
 > | `GET /health` | `GET /api/v1.0/health` |
 
+### Model Resolution
+
+Every endpoint that accepts a `model` field resolves the model using a 3-tier priority:
+
+1. **Request body** `model` field (highest priority — client override)
+2. **Environment variable** per provider (e.g. `DEEPSEEK_MODEL`, `OPENAI_MODEL`)
+3. **`providers.json` `default_model`** (fallback)
+
+Omit `model` or pass `"default"` to use the server-configured default. Pass any model name to override per-request.
+
 ### POST /api/v1.0/classify
 
 Send a prompt, get back a JSON classification response.
@@ -49,7 +59,32 @@ Send a prompt, get back a JSON classification response.
 ```bash
 curl -X POST http://localhost:8090/api/v1.0/classify \
   -H "Content-Type: application/json" \
-  -d '{"prompt": "Classify these items: ..."}'
+  -d '{"prompt": "Classify these items: ...", "model": "deepseek-chat"}'
+```
+
+Request body:
+- `prompt` *(string, required)* — The classification prompt
+- `model` *(string, optional)* — Model override
+
+Response:
+```json
+{
+  "classification": {
+    "owned": [{"subdomain": "app.example.com", "category": "owned"}],
+    "third_party": [],
+    "interesting": [],
+    "ignore": []
+  },
+  "ai_call_log": {
+    "provider": "deepseek",
+    "model": "deepseek-chat",
+    "prompt_tokens": 100,
+    "completion_tokens": 50,
+    "cost_microcents": 12,
+    "latency_ms": 500,
+    "success": true
+  }
+}
 ```
 
 ### POST /api/v1.0/plan
@@ -61,8 +96,41 @@ curl -X POST http://localhost:8090/api/v1.0/plan \
   -H "Content-Type: application/json" \
   -d '{
     "context": {"task": "...", "constraints": []},
-    "system_prompt": "You are a planner. Return JSON."
+    "system_prompt": "You are a planner. Return JSON.",
+    "model": "deepseek-chat"
   }'
+```
+
+Request body:
+- `context` *(object, required)* — Arbitrary context dict for the planning task
+- `system_prompt` *(string, required)* — System prompt for the LLM
+- `model` *(string, optional)* — Model override
+
+Response:
+```json
+{
+  "plan": {
+    "assessment": "needs_followup",
+    "confidence": "medium",
+    "rationale": "Discovered open ports need verification",
+    "probes": [
+      {
+        "cmd": "curl -s -o /dev/null -w '%{http_code}' https://192.168.1.1:443",
+        "timeout_s": 30,
+        "note": "Verify HTTPS service"
+      }
+    ]
+  },
+  "ai_call_log": {
+    "provider": "deepseek",
+    "model": "deepseek-chat",
+    "prompt_tokens": 200,
+    "completion_tokens": 100,
+    "cost_microcents": 24,
+    "latency_ms": 800,
+    "success": true
+  }
+}
 ```
 
 ### POST /api/v1.0/embed
@@ -76,8 +144,8 @@ curl -X POST http://localhost:8090/api/v1.0/embed \
 ```
 
 Request body:
-- `text`: String or list of strings to embed
-- `model`: Embedding model (default: `text-embedding-ada-002`)
+- `text` *(string or array of strings, required)* — Text to embed
+- `model` *(string, optional)* — Embedding model (default: `text-embedding-ada-002`)
 
 Response:
 ```json
@@ -105,8 +173,95 @@ OpenAI-compatible endpoint supporting optional tool calls. Provider-specific tra
 curl -X POST http://localhost:8090/api/v1.0/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
+    "model": "deepseek-chat",
     "messages": [{"role": "user", "content": "Hello"}]
   }'
+```
+
+Request body:
+- `model` *(string, optional)* — Model to use (`"default"` or omit for server default)
+- `messages` *(array, required)* — Chat messages, each with `role` and `content`
+- `tools` *(array, optional)* — Tool definitions for function calling
+
+Request with tools:
+```json
+{
+  "model": "deepseek-chat",
+  "messages": [
+    {"role": "user", "content": "scan 192.168.1.1"}
+  ],
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "run_nmap",
+        "description": "Run nmap scan",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "target": {"type": "string"}
+          }
+        }
+      }
+    }
+  ]
+}
+```
+
+Response:
+```json
+{
+  "choices": [
+    {
+      "message": {
+        "role": "assistant",
+        "content": "Hello! How can I help?",
+        "reasoning_content": null,
+        "tool_calls": null
+      },
+      "finish_reason": "stop",
+      "index": 0
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 50,
+    "completion_tokens": 20,
+    "total_tokens": 70
+  },
+  "model": "deepseek-chat"
+}
+```
+
+Response with tool calls:
+```json
+{
+  "choices": [
+    {
+      "message": {
+        "role": "assistant",
+        "content": null,
+        "tool_calls": [
+          {
+            "id": "call_xyz789",
+            "type": "function",
+            "function": {
+              "name": "run_nmap",
+              "arguments": "{\"target\": \"192.168.1.1\"}"
+            }
+          }
+        ]
+      },
+      "finish_reason": "tool_calls",
+      "index": 0
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 80,
+    "completion_tokens": 30,
+    "total_tokens": 110
+  },
+  "model": "deepseek-chat"
+}
 ```
 
 ### GET /api/v1.0/health
@@ -123,6 +278,16 @@ Response:
   "status": "healthy",
   "providers": [{"name": "deepseek", "model": "deepseek-chat"}],
   "embeddings_available": true
+}
+```
+
+### Error Responses
+
+All endpoints return a 500 with detail when all providers fail:
+
+```json
+{
+  "detail": "All providers failed:\ndeepseek: timeout\ngemini: api error"
 }
 ```
 
