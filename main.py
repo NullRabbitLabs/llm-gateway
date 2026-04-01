@@ -432,7 +432,8 @@ async def chat_completions(request: ChatCompletionRequest) -> ChatCompletionResp
             elif msg.role == "user":
                 user_message = msg.content or ""
 
-        result = llm_service.call(user_message, system_prompt)
+        model_override = request.model if request.model != "default" else None
+        result = llm_service.call(user_message, system_prompt, model_override=model_override)
 
         log.info(
             "llm_gateway_call_complete request_id=%s model=%s prompt_tokens=%d completion_tokens=%d finish_reason=%s",
