@@ -9,6 +9,36 @@ from providers.registry import create_providers_for_mode
 
 log = logging.getLogger("llm-gateway.service")
 
+# Model prefix → provider names that can serve it.
+# If a model_override matches a prefix, only those providers are tried.
+_MODEL_AFFINITY: dict[str, list[str]] = {
+    "claude": ["anthropic"],
+    "deepseek": ["deepseek"],
+    "gpt-": ["openai"],
+    "o1": ["openai"],
+    "o3": ["openai"],
+    "o4": ["openai"],
+    "gemini": ["gemini"],
+    "qwen": ["ollama", "deepseek"],
+}
+
+
+def _filter_providers_for_model(
+    providers: list[Provider], model: str | None,
+) -> list[Provider]:
+    """Filter providers to only those that can serve the requested model."""
+    if not model:
+        return providers
+    model_lower = model.lower()
+    for prefix, allowed in _MODEL_AFFINITY.items():
+        if model_lower.startswith(prefix):
+            filtered = [p for p in providers if p.name in allowed]
+            if filtered:
+                return filtered
+            log.warning(f"Model {model} needs {allowed} but none configured, trying all providers")
+            return providers
+    return providers
+
 
 class AllProvidersFailedError(Exception):
     """Raised when all LLM providers fail."""
@@ -51,8 +81,9 @@ class LLMService:
             AllProvidersFailedError: If all providers fail
         """
         errors = []
+        providers = _filter_providers_for_model(self.providers, model_override)
 
-        for provider in self.providers:
+        for provider in providers:
             try:
                 log.info(f"Calling provider: {provider.name}")
                 response = provider.call(prompt, system_prompt, model_override=model_override)
@@ -88,8 +119,9 @@ class LLMService:
             AllProvidersFailedError: If all providers fail
         """
         errors = []
+        providers = _filter_providers_for_model(self.providers, model_override)
 
-        for provider in self.providers:
+        for provider in providers:
             try:
                 log.info(f"Calling provider with tools: {provider.name}" + (f" (model override: {model_override})" if model_override else ""))
                 response = provider.call_with_tools(messages, tools, model_override=model_override)
