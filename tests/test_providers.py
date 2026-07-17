@@ -1117,3 +1117,76 @@ class TestProviderRegistry:
 
         with pytest.raises(ValueError, match="Unknown LLM_PROVIDER"):
             create_providers_for_mode("nonexistent", [], {})
+
+
+class TestCurrentAnthropicModels:
+    """Anthropic retired claude-sonnet-4-20250514 (2026-06-15) and
+    claude-3-5-sonnet-20241022 (2025-10-28); the API 404s on both. The
+    configured defaults must be servable models, and sampling params must
+    not be sent unless explicitly configured — Sonnet 5 / Opus 4.7+ reject
+    non-default temperature with a 400."""
+
+    def test_providers_json_anthropic_default_model_is_current(self):
+        from providers.registry import load_provider_configs
+
+        _, configs = load_provider_configs()
+        anthropic_cfg = configs["anthropic"]
+        assert anthropic_cfg.default_model == "claude-sonnet-5"
+        assert "temperature" not in anthropic_cfg.api_params
+
+    def test_anthropic_omits_temperature_when_not_configured(self, mock_env_anthropic):
+        from providers.anthropic_provider import AnthropicProvider
+        from providers.registry import ProviderConfig
+
+        config = ProviderConfig(
+            name="anthropic",
+            kind="anthropic",
+            env_key="ANTHROPIC_API_KEY",
+            env_model="ANTHROPIC_MODEL",
+            default_model="claude-sonnet-5",
+            timeout=300,
+            api_params={"max_tokens": 16000},
+        )
+
+        with patch("providers.anthropic_provider.anthropic.Anthropic") as mock_cls:
+            mock_client = MagicMock()
+            mock_cls.return_value = mock_client
+
+            mock_response = MagicMock()
+            mock_response.content = [MagicMock()]
+            mock_response.content[0].type = "text"
+            mock_response.content[0].text = "ok"
+            mock_response.usage = MagicMock()
+            mock_response.usage.input_tokens = 1
+            mock_response.usage.output_tokens = 1
+            mock_client.messages.create.return_value = mock_response
+
+            provider = AnthropicProvider("test-key", "claude-sonnet-5", config=config)
+            provider.call("test prompt")
+
+            kwargs = mock_client.messages.create.call_args.kwargs
+            assert "temperature" not in kwargs
+
+    def test_anthropic_sends_temperature_when_configured(self, mock_env_anthropic, anthropic_provider_config):
+        from providers.anthropic_provider import AnthropicProvider
+
+        with patch("providers.anthropic_provider.anthropic.Anthropic") as mock_cls:
+            mock_client = MagicMock()
+            mock_cls.return_value = mock_client
+
+            mock_response = MagicMock()
+            mock_response.content = [MagicMock()]
+            mock_response.content[0].type = "text"
+            mock_response.content[0].text = "ok"
+            mock_response.usage = MagicMock()
+            mock_response.usage.input_tokens = 1
+            mock_response.usage.output_tokens = 1
+            mock_client.messages.create.return_value = mock_response
+
+            provider = AnthropicProvider(
+                "test-key", "claude-3-5-sonnet-20241022", config=anthropic_provider_config
+            )
+            provider.call("test prompt")
+
+            kwargs = mock_client.messages.create.call_args.kwargs
+            assert kwargs["temperature"] == 0.1

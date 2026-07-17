@@ -94,7 +94,9 @@ class AnthropicProvider(Provider):
         pricing = config.pricing if config else {}
 
         self._max_tokens: int = api_params.get("max_tokens", 16000)
-        self._temperature: float = api_params.get("temperature", 0.1)
+        # Only sent when configured — claude-sonnet-5 / opus-4-7+ reject
+        # non-default sampling params with a 400.
+        self._temperature: Optional[float] = api_params.get("temperature")
         self._input_cost_per_1k: float = pricing.get("input_per_1k_microcents", 300.0)
         self._output_cost_per_1k: float = pricing.get("output_per_1k_microcents", 1500.0)
 
@@ -116,8 +118,9 @@ class AnthropicProvider(Provider):
                 "model": model_override or self.model,
                 "max_tokens": self._max_tokens,
                 "messages": [{"role": "user", "content": prompt}],
-                "temperature": self._temperature,
             }
+            if self._temperature is not None:
+                kwargs["temperature"] = self._temperature
             if system_prompt:
                 kwargs["system"] = system_prompt
 

@@ -25,9 +25,9 @@
       "kind": "anthropic",
       "env_key": "ANTHROPIC_API_KEY",
       "env_model": "ANTHROPIC_MODEL",
-      "default_model": "claude-3-5-sonnet-20241022",
+      "default_model": "claude-sonnet-5",
       "timeout": 300,
-      "api_params": { "max_tokens": 16000, "temperature": 0.1 },
+      "api_params": { "max_tokens": 16000 },
       "features": { "tool_calls": true },
       "pricing": { "input_per_1k_microcents": 300.0, "output_per_1k_microcents": 1500.0 }
     },
