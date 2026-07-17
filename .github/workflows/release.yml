@@ -10,7 +10,7 @@ env:
 
 jobs:
   test:
-    runs-on: [self-hosted, linux, x64, nullrabbit]
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -21,7 +21,7 @@ jobs:
 
   docker:
     needs: test
-    runs-on: [self-hosted, linux, x64, nullrabbit]
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
