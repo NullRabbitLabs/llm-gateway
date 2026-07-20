@@ -20,6 +20,8 @@ _MODEL_AFFINITY: dict[str, list[str]] = {
     "o4": ["openai"],
     "gemini": ["gemini"],
     "qwen": ["ollama", "deepseek"],
+    "glm": ["zai"],
+    "kimi": ["moonshot"],
 }
 
 

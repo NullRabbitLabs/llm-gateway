@@ -27,6 +27,11 @@ class ProviderConfig:
     base_url: str | None = None
     timeout: int = 300
     api_params: dict[str, Any] = field(default_factory=dict)
+    # Per-model overrides merged over api_params, keyed by model id. Lets one
+    # provider serve models needing different params (e.g. moonshot: kimi-k3
+    # thinking-on/temp-1 vs kimi-k2.6 thinking-off/temp-0.6). Values may include
+    # `extra_body` (e.g. {"thinking": {"type": "disabled"}}).
+    model_params: dict[str, dict[str, Any]] = field(default_factory=dict)
     features: dict[str, bool] = field(default_factory=dict)
     pricing: dict[str, float] = field(default_factory=dict)
 
@@ -60,6 +65,7 @@ def load_provider_configs(
             base_url=entry.get("base_url"),
             timeout=entry.get("timeout", 300),
             api_params=entry.get("api_params", {}),
+            model_params=entry.get("model_params", {}),
             features=entry.get("features", {}),
             pricing=entry.get("pricing", {}),
         )

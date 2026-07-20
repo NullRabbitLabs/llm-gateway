@@ -1,16 +1,46 @@
 {
-  "auto_priority": ["ollama", "deepseek", "gemini", "openai", "anthropic"],
+  "auto_priority": ["ollama", "deepseek", "zai", "moonshot", "gemini", "openai", "anthropic"],
   "providers": {
     "deepseek": {
       "kind": "openai_compatible",
       "base_url": "https://api.deepseek.com",
       "env_key": "DEEPSEEK_API_KEY",
       "env_model": "DEEPSEEK_MODEL",
-      "default_model": "deepseek-chat",
+      "default_model": "deepseek-v4-flash",
       "timeout": 300,
       "api_params": { "max_tokens": 8192 },
       "features": { "reasoning_content": true, "tool_calls": true, "json_mode": false },
       "pricing": { "input_per_1k_microcents": 0.12, "output_per_1k_microcents": 0.20 }
+    },
+    "zai": {
+      "kind": "openai_compatible",
+      "base_url": "https://api.z.ai/api/paas/v4",
+      "env_key": "ZAI_API_KEY",
+      "env_model": "ZAI_MODEL",
+      "default_model": "glm-4.6",
+      "timeout": 300,
+      "api_params": { "max_tokens": 8192 },
+      "model_params": {
+        "glm-4.6": { "temperature": 1.0, "extra_body": { "thinking": { "type": "disabled" } } },
+        "glm-4.5-air": { "temperature": 1.0 }
+      },
+      "features": { "tool_calls": true, "json_mode": false },
+      "pricing": { "input_per_1k_microcents": 60.0, "output_per_1k_microcents": 220.0 }
+    },
+    "moonshot": {
+      "kind": "openai_compatible",
+      "base_url": "https://api.moonshot.ai/v1",
+      "env_key": "MOONSHOT_API_KEY",
+      "env_model": "MOONSHOT_MODEL",
+      "default_model": "kimi-k2.6",
+      "timeout": 300,
+      "api_params": { "max_tokens": 8192 },
+      "model_params": {
+        "kimi-k3": { "temperature": 1.0 },
+        "kimi-k2.6": { "temperature": 0.6, "extra_body": { "thinking": { "type": "disabled" } } }
+      },
+      "features": { "tool_calls": true, "json_mode": false },
+      "pricing": { "input_per_1k_microcents": 95.0, "output_per_1k_microcents": 400.0 }
     },
     "openai": {
       "kind": "openai_compatible",

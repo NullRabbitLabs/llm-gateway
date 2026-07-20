@@ -28,6 +28,7 @@ class OpenAICompatibleProvider(Provider):
         base_url = config.base_url if config else None
         timeout = config.timeout if config else 300
         self._api_params: dict[str, Any] = dict(config.api_params) if config else {}
+        self._model_params: dict[str, dict[str, Any]] = dict(config.model_params) if config else {}
         features = config.features if config else {}
         pricing = config.pricing if config else {}
 
@@ -57,10 +58,12 @@ class OpenAICompatibleProvider(Provider):
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": prompt})
 
+        model = model_override or self.model
         kwargs: dict[str, Any] = {
-            "model": model_override or self.model,
+            "model": model,
             "messages": messages,
             **self._api_params,
+            **self._model_params.get(model, {}),  # per-model overrides win
         }
         if self._json_mode:
             kwargs["response_format"] = {"type": "json_object"}
@@ -95,6 +98,8 @@ class OpenAICompatibleProvider(Provider):
         kwargs: dict[str, Any] = {
             "model": model,
             "messages": messages,
+            **self._api_params,
+            **self._model_params.get(model, {}),  # per-model overrides win
         }
         if tools:
             kwargs["tools"] = tools
